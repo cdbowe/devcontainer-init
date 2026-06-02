@@ -1,0 +1,36 @@
+{
+  "name": "devcontainer-init",
+  "workspaceFolder": "/workspaces/devcontainer-init",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "args": {
+      "WORKSPACE_DIR": "/workspaces/devcontainer-init"
+    }
+  },
+  "features": {},
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "ms-vscode.vscode-typescript-next"
+      ]
+    }
+  },
+  "remoteEnv": {
+    "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
+    "WORKSPACE_DIR": "/workspaces/devcontainer-init"
+  },
+  "remoteUser": "dev",
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=${localWorkspaceFolder}/.gitignore,target=${containerWorkspaceFolder}/.gitignore,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/LICENSE,target=${containerWorkspaceFolder}/LICENSE,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/package-lock.json,target=${containerWorkspaceFolder}/package-lock.json,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/package.json,target=${containerWorkspaceFolder}/package.json,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/README.md,target=${containerWorkspaceFolder}/README.md,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/src,target=${containerWorkspaceFolder}/src,type=bind,consistency=cached",
+    "source=${localWorkspaceFolder}/tsconfig.json,target=${containerWorkspaceFolder}/tsconfig.json,type=bind,consistency=cached"
+  ],
+  "postCreateCommand": "sudo chmod +x .devcontainer/scripts/*.sh && bash .devcontainer/scripts/post-create.sh",
+  "postStartCommand": "sudo chmod +x .devcontainer/scripts/*.sh && bash .devcontainer/scripts/post-start.sh"
+}
