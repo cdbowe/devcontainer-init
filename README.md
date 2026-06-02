@@ -86,8 +86,47 @@ This tool generates generic devcontainer setups, but it's designed to work well 
 
 - [ ] `devcontainer-init sync` — Compare host vs container file structure, report diffs, prompt before applying
 - [ ] Interactive mode — prompt for project name, timezone, additional features
-- [ ] Custom template support — bring your own Dockerfile/devcontainer.json templates
+- [ ] Template system — layer opinionated tooling on top of base generation (see below)
 - [ ] Monorepo workspace detection (npm/pnpm/yarn workspaces)
+
+### Template System (NOT IMPLEMENTED, PLANNED)
+
+The base `devcontainer-init` output is intentionally generic — it detects your project's tech stack and nothing more. A template system would let users layer additional tooling on top without bloating the core generator.
+
+```bash
+# Generate base devcontainer + apply a template
+devcontainer-init --template claude-code
+
+# Apply a template to an existing devcontainer
+devcontainer-init apply-template claude-code
+```
+
+Templates would add Dockerfile steps, mounts, VS Code extensions, and setup scripts for a specific developer workflow. Examples:
+
+| Template | What It Adds |
+|----------|-------------|
+| `claude-code` | Claude Code CLI, MCP server setup, component mounts |
+| `copilot-cli` | GitHub Copilot CLI |
+| `codex` | OpenAI Codex CLI |
+| `antigravity` | Google Antigravity CLI (successor to Gemini CLI) |
+| `opencode` | OpenCode — open-source, model-agnostic coding agent |
+| `ollama` | Ollama CLI harness pointed at a remote Ollama URL (default), with opt-in local runtime |
+| `aider` | Aider AI pair programming CLI |
+| `goose` | Goose — Linux Foundation backed, model-agnostic coding agent |
+
+Templates could be built-in or loaded from external repos/directories, keeping the core tool focused on project detection while supporting opinionated setups as opt-in layers.
+
+#### Ollama Template
+
+By default, the `ollama` template installs a CLI harness configured to talk to a remote Ollama instance via URL (e.g., a server on your home network or a cloud VM). This avoids the heavy RAM/CPU cost of running inference inside the devcontainer. Users can opt into bundling the full Ollama runtime locally if they have the resources:
+
+```bash
+# Default: CLI harness pointing to remote Ollama server
+devcontainer-init --template ollama
+
+# Opt-in: run Ollama runtime locally inside the container
+devcontainer-init --template ollama --ollama-local
+```
 
 ## License
 
