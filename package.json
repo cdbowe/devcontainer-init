@@ -1,0 +1,37 @@
+{
+  "name": "devcontainer-init",
+  "version": "0.1.0",
+  "description": "Scan a codebase and generate a .devcontainer setup with the right SDKs and bind mounts",
+  "type": "module",
+  "bin": {
+    "devcontainer-init": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "start": "node dist/cli.js",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "devcontainer",
+    "docker",
+    "vscode",
+    "codespaces",
+    "dev-environment"
+  ],
+  "author": "Christopher D. Bowe",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^5.4.1",
+    "commander": "^13.1.0",
+    "inquirer": "^12.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
