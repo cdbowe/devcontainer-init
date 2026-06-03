@@ -96,7 +96,9 @@ When version-specific markers exist (like `TargetFramework` in a `.csproj` or `e
 
 ### Bind Mounts
 
-Each root-level file and directory gets its own bind mount entry in `devcontainer.json`. This gives you explicit control over what's shared between host and container, and makes it possible to add a `sync` command later that can detect drift between the two.
+The default VS Code workspace mount is disabled (`"workspaceMount": ""`). Instead, each root-level file and directory gets its own explicit bind mount entry in `devcontainer.json`, along with the `.devcontainer/` folder itself. This gives you precise control over what's shared between host and container, and makes it possible to add a `sync` command later that can detect drift between the two.
+
+**Only explicitly mounted files and folders will be visible inside the container.** If you add new files or directories to your project after running `devcontainer-init`, you'll need to add corresponding mount entries to `devcontainer.json` (or re-run the tool with `--force`) for them to appear in the container.
 
 Directories in the exclude list (`node_modules`, `.git`, `bin`, `obj`, etc.) are automatically omitted from mounts.
 
