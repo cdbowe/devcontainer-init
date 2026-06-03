@@ -52,13 +52,39 @@ Multiple stacks in the same project are supported (e.g., .NET backend + Node.js 
 Usage: devcontainer-init [options]
 
 Options:
-  -p, --path <dir>   Path to the project root (default: ".")
-  -n, --name <name>  Override the project name
-  --dry-run          Show what would be generated without writing files
-  --force            Overwrite existing .devcontainer directory
-  -V, --version      Output the version number
-  -h, --help         Display help
+  -p, --path <dir>          Path to the project root (default: ".")
+  -n, --name <name>         Override the project name
+  -t, --template <names...> Apply templates (e.g., --template claude-code)
+  --dry-run                 Show what would be generated without writing files
+  --force                   Overwrite existing .devcontainer directory
+  --no-interactive          Skip the wizard and use defaults
+  -V, --version             Output the version number
+  -h, --help                Display help
 ```
+
+### Interactive Wizard
+
+By default, `devcontainer-init` runs an interactive wizard that:
+1. Shows detected stacks and lets you confirm
+2. Prompts for project name
+3. Lets you select templates to apply (e.g., Claude Code)
+4. Asks for confirmation before writing files
+
+Use `--no-interactive` with `--template` for CI/scripted usage:
+
+```bash
+devcontainer-init --template claude-code --no-interactive
+```
+
+## Templates
+
+Templates layer additional tooling on top of the base devcontainer. Available templates:
+
+| Template | What It Adds |
+|----------|-------------|
+| `claude-code` | Claude Code CLI (version picker), shared `claude-code-home` volume, VS Code extension |
+
+Use `--template` to apply directly, or select from the wizard's template picker.
 
 ## How It Works
 
@@ -84,41 +110,29 @@ This tool generates generic devcontainer setups, but it's designed to work well 
 
 ## Roadmap
 
+- [x] ~~Interactive wizard — project name, stack confirmation, template selection~~
+- [x] ~~Template system — layer opinionated tooling on top of base generation~~
+- [x] ~~Claude Code template — version picker, shared credential volume~~
 - [ ] `devcontainer-init sync` — Compare host vs container file structure, report diffs, prompt before applying
-- [ ] Interactive mode — prompt for project name, timezone, additional features
-- [ ] Template system — layer opinionated tooling on top of base generation (see below)
 - [ ] Monorepo workspace detection (npm/pnpm/yarn workspaces)
+- [ ] Custom template loading from external repos/directories
 
-### Template System (NOT IMPLEMENTED, PLANNED)
+### Planned Templates
 
-The base `devcontainer-init` output is intentionally generic — it detects your project's tech stack and nothing more. A template system would let users layer additional tooling on top without bloating the core generator.
+| Template | What It Adds | Status |
+|----------|-------------|--------|
+| `claude-code` | Claude Code CLI, shared credential volume, VS Code extension | Implemented |
+| `copilot-cli` | GitHub Copilot CLI | Planned |
+| `codex` | OpenAI Codex CLI | Planned |
+| `antigravity` | Google Antigravity CLI (successor to Gemini CLI) | Planned |
+| `opencode` | OpenCode — open-source, model-agnostic coding agent | Planned |
+| `ollama` | Ollama CLI harness pointed at a remote Ollama URL (default), with opt-in local runtime | Planned |
+| `aider` | Aider AI pair programming CLI | Planned |
+| `goose` | Goose — Linux Foundation backed, model-agnostic coding agent | Planned |
 
-```bash
-# Generate base devcontainer + apply a template
-devcontainer-init --template claude-code
+#### Ollama Template (Planned)
 
-# Apply a template to an existing devcontainer
-devcontainer-init apply-template claude-code
-```
-
-Templates would add Dockerfile steps, mounts, VS Code extensions, and setup scripts for a specific developer workflow. Examples:
-
-| Template | What It Adds |
-|----------|-------------|
-| `claude-code` | Claude Code CLI, MCP server setup, component mounts |
-| `copilot-cli` | GitHub Copilot CLI |
-| `codex` | OpenAI Codex CLI |
-| `antigravity` | Google Antigravity CLI (successor to Gemini CLI) |
-| `opencode` | OpenCode — open-source, model-agnostic coding agent |
-| `ollama` | Ollama CLI harness pointed at a remote Ollama URL (default), with opt-in local runtime |
-| `aider` | Aider AI pair programming CLI |
-| `goose` | Goose — Linux Foundation backed, model-agnostic coding agent |
-
-Templates could be built-in or loaded from external repos/directories, keeping the core tool focused on project detection while supporting opinionated setups as opt-in layers.
-
-#### Ollama Template
-
-By default, the `ollama` template installs a CLI harness configured to talk to a remote Ollama instance via URL (e.g., a server on your home network or a cloud VM). This avoids the heavy RAM/CPU cost of running inference inside the devcontainer. Users can opt into bundling the full Ollama runtime locally if they have the resources:
+By default, the `ollama` template will install a CLI harness configured to talk to a remote Ollama instance via URL (e.g., a server on your home network or a cloud VM). This avoids the heavy RAM/CPU cost of running inference inside the devcontainer. Users can opt into bundling the full Ollama runtime locally if they have the resources:
 
 ```bash
 # Default: CLI harness pointing to remote Ollama server

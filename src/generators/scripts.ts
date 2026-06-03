@@ -1,8 +1,16 @@
 import type { ScanResult } from "../types.js";
+import type { TemplateAdditions } from "../templates/types.js";
 
-export function generatePostCreate(scan: ScanResult): string {
+export function generatePostCreate(
+  scan: ScanResult,
+  templateAdditions?: TemplateAdditions
+): string {
   const installSteps = scan.stacks
     .flatMap((s) => s.postCreateSteps)
+    .map((step) => `echo "Running: ${step}..."\n${step}`)
+    .join("\n\n");
+
+  const templateSteps = templateAdditions?.postCreateSteps
     .map((step) => `echo "Running: ${step}..."\n${step}`)
     .join("\n\n");
 
@@ -32,13 +40,21 @@ fi
 ###########################################
 
 ${installSteps || "echo \"No project dependencies to install.\""}
+${templateSteps ? `\n###########################################\n# Template Setup\n###########################################\n\n${templateSteps}` : ""}
 
 echo ""
 echo "Post-create setup complete!"
 `;
 }
 
-export function generatePostStart(_scan: ScanResult): string {
+export function generatePostStart(
+  _scan: ScanResult,
+  templateAdditions?: TemplateAdditions
+): string {
+  const templateSteps = templateAdditions?.postStartSteps
+    .map((step) => `echo "Running: ${step}..."\n${step}`)
+    .join("\n\n");
+
   return `#!/bin/bash
 set -e
 
@@ -49,6 +65,7 @@ echo "Running post-start setup..."
 ###########################################
 
 git config --global --add safe.directory "\${WORKSPACE_DIR}" 2>/dev/null || true
+${templateSteps ? `\n###########################################\n# Template Setup\n###########################################\n\n${templateSteps}` : ""}
 
 echo "Post-start setup complete!"
 `;

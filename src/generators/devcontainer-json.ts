@@ -1,4 +1,5 @@
 import type { ScanResult } from "../types.js";
+import type { TemplateAdditions } from "../templates/types.js";
 
 interface DevcontainerConfig {
   name: string;
@@ -20,7 +21,10 @@ interface DevcontainerConfig {
   postStartCommand: string;
 }
 
-export function generateDevcontainerJson(scan: ScanResult): string {
+export function generateDevcontainerJson(
+  scan: ScanResult,
+  templateAdditions?: TemplateAdditions
+): string {
   const extensions = new Set<string>();
   for (const stack of scan.stacks) {
     for (const ext of stack.extensions) {
@@ -36,7 +40,25 @@ export function generateDevcontainerJson(scan: ScanResult): string {
     };
   }
 
+  if (templateAdditions) {
+    for (const ext of templateAdditions.extensions) {
+      extensions.add(ext);
+    }
+    Object.assign(features, templateAdditions.features);
+  }
+
   const mounts = buildMountEntries(scan);
+  if (templateAdditions) {
+    mounts.push(...templateAdditions.mounts);
+  }
+
+  const remoteEnv: Record<string, string> = {
+    LOCAL_WORKSPACE_FOLDER: "${localWorkspaceFolder}",
+    WORKSPACE_DIR: `/workspaces/${scan.projectName}`,
+  };
+  if (templateAdditions) {
+    Object.assign(remoteEnv, templateAdditions.envVars);
+  }
 
   const config: DevcontainerConfig = {
     name: scan.projectName,
@@ -53,11 +75,8 @@ export function generateDevcontainerJson(scan: ScanResult): string {
         extensions: [...extensions],
       },
     },
-    remoteEnv: {
-      LOCAL_WORKSPACE_FOLDER: "${localWorkspaceFolder}",
-      WORKSPACE_DIR: `/workspaces/${scan.projectName}`,
-    },
-    remoteUser: "dev",
+    remoteEnv,
+    remoteUser: "node",
     mounts,
     postCreateCommand:
       "sudo chmod +x .devcontainer/scripts/*.sh && bash .devcontainer/scripts/post-create.sh",
