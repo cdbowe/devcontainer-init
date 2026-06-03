@@ -4,6 +4,7 @@ import type { TemplateAdditions } from "../templates/types.js";
 interface DevcontainerConfig {
   name: string;
   workspaceFolder: string;
+  workspaceMount: string;
   build: {
     dockerfile: string;
     args: Record<string, string>;
@@ -63,6 +64,7 @@ export function generateDevcontainerJson(
   const config: DevcontainerConfig = {
     name: scan.projectName,
     workspaceFolder: `/workspaces/${scan.projectName}`,
+    workspaceMount: "",
     build: {
       dockerfile: "Dockerfile",
       args: {
@@ -92,6 +94,9 @@ function buildMountEntries(scan: ScanResult): string[] {
 
   mounts.push(
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  );
+  mounts.push(
+    "source=${localWorkspaceFolder}/.devcontainer,target=${containerWorkspaceFolder}/.devcontainer,type=bind,consistency=cached"
   );
 
   for (const entry of scan.rootEntries) {

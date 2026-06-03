@@ -6,7 +6,7 @@ FROM debian:bookworm-slim
 # Build ARGs
 ######################
 
-ARG USERNAME=dev
+ARG USERNAME=node
 ARG USER_UID=1000
 ARG USER_GID=${USER_UID}
 ARG WORKSPACE_DIR=/workspaces/devcontainer-init
@@ -65,4 +65,9 @@ RUN groupadd --gid ${USER_GID} ${USERNAME} 2>/dev/null || true \
 RUN mkdir -p ${WORKSPACE_DIR} && chown -R ${USER_UID}:${USER_GID} ${WORKSPACE_DIR}
 WORKDIR ${WORKSPACE_DIR}
 
+######################
+# Claude Code CLI
+######################
+
 USER ${USERNAME}
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- 2.1.129

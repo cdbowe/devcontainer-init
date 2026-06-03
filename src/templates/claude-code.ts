@@ -126,7 +126,7 @@ USER \${USERNAME}
 RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${version}`,
       ],
       mounts: [
-        "source=claude-code-home,target=/home/${remoteUser}/.claude,type=volume",
+        "source=claude-code-home,target=/home/node/.claude,type=volume",
       ],
       extensions: ["Anthropic.claude-code"],
       envVars: {

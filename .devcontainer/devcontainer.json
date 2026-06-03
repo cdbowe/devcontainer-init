@@ -1,6 +1,7 @@
 {
   "name": "devcontainer-init",
   "workspaceFolder": "/workspaces/devcontainer-init",
+  "workspaceMount": "",
   "build": {
     "dockerfile": "Dockerfile",
     "args": {
@@ -12,24 +13,28 @@
     "vscode": {
       "extensions": [
         "dbaeumer.vscode-eslint",
-        "ms-vscode.vscode-typescript-next"
+        "ms-vscode.vscode-typescript-next",
+        "Anthropic.claude-code"
       ]
     }
   },
   "remoteEnv": {
     "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
-    "WORKSPACE_DIR": "/workspaces/devcontainer-init"
+    "WORKSPACE_DIR": "/workspaces/devcontainer-init",
+    "CLAUDE_CONFIG_DIR": "/home/node/.claude"
   },
-  "remoteUser": "dev",
+  "remoteUser": "node",
   "mounts": [
     "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=${localWorkspaceFolder}/.devcontainer,target=${containerWorkspaceFolder}/.devcontainer,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/.gitignore,target=${containerWorkspaceFolder}/.gitignore,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/LICENSE,target=${containerWorkspaceFolder}/LICENSE,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/package-lock.json,target=${containerWorkspaceFolder}/package-lock.json,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/package.json,target=${containerWorkspaceFolder}/package.json,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/README.md,target=${containerWorkspaceFolder}/README.md,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/src,target=${containerWorkspaceFolder}/src,type=bind,consistency=cached",
-    "source=${localWorkspaceFolder}/tsconfig.json,target=${containerWorkspaceFolder}/tsconfig.json,type=bind,consistency=cached"
+    "source=${localWorkspaceFolder}/tsconfig.json,target=${containerWorkspaceFolder}/tsconfig.json,type=bind,consistency=cached",
+    "source=claude-code-home,target=/home/node/.claude,type=volume"
   ],
   "postCreateCommand": "sudo chmod +x .devcontainer/scripts/*.sh && bash .devcontainer/scripts/post-create.sh",
   "postStartCommand": "sudo chmod +x .devcontainer/scripts/*.sh && bash .devcontainer/scripts/post-start.sh"
