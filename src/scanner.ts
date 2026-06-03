@@ -234,6 +234,88 @@ const detectors: StackDetector[] = [
   },
 ];
 
+export interface StackChoice {
+  name: string;
+  label: string;
+  defaultStack: DetectedStack;
+}
+
+export const stackChoices: StackChoice[] = [
+  {
+    name: "node",
+    label: "Node.js (TypeScript)",
+    defaultStack: {
+      name: "node",
+      sdk: "node:20",
+      version: "20",
+      extensions: ["dbaeumer.vscode-eslint", "ms-vscode.vscode-typescript-next"],
+      postCreateSteps: ["npm install"],
+    },
+  },
+  {
+    name: "dotnet",
+    label: ".NET (C#)",
+    defaultStack: {
+      name: "dotnet",
+      sdk: "dotnet/sdk:8.0",
+      version: "8.0",
+      extensions: ["ms-dotnettools.csharp"],
+      postCreateSteps: ["dotnet restore"],
+    },
+  },
+  {
+    name: "python",
+    label: "Python",
+    defaultStack: {
+      name: "python",
+      sdk: "python:3",
+      extensions: ["ms-python.python"],
+      postCreateSteps: [],
+    },
+  },
+  {
+    name: "rust",
+    label: "Rust",
+    defaultStack: {
+      name: "rust",
+      sdk: "rust",
+      extensions: ["rust-lang.rust-analyzer"],
+      postCreateSteps: [],
+    },
+  },
+  {
+    name: "go",
+    label: "Go",
+    defaultStack: {
+      name: "go",
+      sdk: "go:1.22",
+      version: "1.22",
+      extensions: ["golang.go"],
+      postCreateSteps: [],
+    },
+  },
+  {
+    name: "ruby",
+    label: "Ruby",
+    defaultStack: {
+      name: "ruby",
+      sdk: "ruby:3",
+      extensions: ["shopify.ruby-lsp"],
+      postCreateSteps: [],
+    },
+  },
+  {
+    name: "java",
+    label: "Java",
+    defaultStack: {
+      name: "java",
+      sdk: "java:21",
+      extensions: ["vscjava.vscode-java-pack"],
+      postCreateSteps: [],
+    },
+  },
+];
+
 export async function scanProject(rootPath: string): Promise<ScanResult> {
   const entries = await readdir(rootPath, { withFileTypes: true }) as unknown as Dirent[];
   const projectName = basename(rootPath);

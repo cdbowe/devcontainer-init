@@ -72,6 +72,10 @@ program
         process.exit(0);
       }
 
+      if (wizardResult.selectedStacks.length > 0) {
+        scan.stacks.push(...wizardResult.selectedStacks);
+      }
+
       if (wizardResult.templates.length > 0) {
         const additions: TemplateAdditions[] = [];
         for (const template of wizardResult.templates) {

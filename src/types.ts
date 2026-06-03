@@ -2,7 +2,7 @@ export interface DetectedStack {
   name: string;
   sdk: string;
   version?: string;
-  markerFile: string;
+  markerFile?: string;
   extensions: string[];
   postCreateSteps: string[];
 }

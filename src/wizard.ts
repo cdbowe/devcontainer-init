@@ -1,16 +1,20 @@
 import inquirer from "inquirer";
 import chalk from "chalk";
-import type { ScanResult } from "./types.js";
+import type { DetectedStack, ScanResult } from "./types.js";
 import { listTemplates, type Template } from "./templates/index.js";
+import { stackChoices } from "./scanner.js";
 
 export interface WizardResult {
   projectName: string;
+  selectedStacks: DetectedStack[];
   templates: Template[];
   confirmed: boolean;
 }
 
 export async function runWizard(scan: ScanResult): Promise<WizardResult> {
   console.log(chalk.bold("\ndevcontainer-init setup wizard\n"));
+
+  let selectedStacks: DetectedStack[] = [];
 
   if (scan.stacks.length > 0) {
     console.log(chalk.green("Detected stacks:"));
@@ -21,7 +25,27 @@ export async function runWizard(scan: ScanResult): Promise<WizardResult> {
     }
   } else {
     console.log(chalk.yellow("No recognized tech stacks detected."));
-    console.log("A minimal Debian-based devcontainer will be generated.");
+    console.log("Select the stacks you want to include:\n");
+
+    const { chosenStacks } = await inquirer.prompt<{ chosenStacks: string[] }>([
+      {
+        type: "checkbox",
+        name: "chosenStacks",
+        message: "Tech stacks:",
+        choices: stackChoices.map((s) => ({
+          name: s.label,
+          value: s.name,
+        })),
+      },
+    ]);
+
+    selectedStacks = chosenStacks
+      .map((name) => stackChoices.find((s) => s.name === name)?.defaultStack)
+      .filter((s): s is DetectedStack => s !== undefined);
+
+    if (selectedStacks.length === 0) {
+      console.log(chalk.dim("\nNo stacks selected — a minimal Debian container will be generated."));
+    }
   }
   console.log();
 
@@ -57,10 +81,12 @@ export async function runWizard(scan: ScanResult): Promise<WizardResult> {
       .filter(Boolean);
   }
 
+  const allStacks = [...scan.stacks, ...selectedStacks];
+
   console.log(chalk.bold("\nSummary:"));
   console.log(`  Project: ${chalk.cyan(projectName)}`);
   console.log(
-    `  Stacks: ${scan.stacks.length > 0 ? scan.stacks.map((s) => s.name).join(", ") : "none (minimal Debian)"}`
+    `  Stacks: ${allStacks.length > 0 ? allStacks.map((s) => s.name).join(", ") : "none (minimal Debian)"}`
   );
   console.log(
     `  Templates: ${selectedTemplates.length > 0 ? selectedTemplates.map((t) => t.name).join(", ") : "none"}`
@@ -79,5 +105,5 @@ export async function runWizard(scan: ScanResult): Promise<WizardResult> {
     },
   ]);
 
-  return { projectName, templates: selectedTemplates, confirmed };
+  return { projectName, selectedStacks, templates: selectedTemplates, confirmed };
 }
