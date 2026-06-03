@@ -1,13 +1,40 @@
-import type { ScanResult } from "../types.js";
+import { basename } from "node:path";
+import type { DetectedStack, ScanResult } from "../types.js";
 import type { TemplateAdditions } from "../templates/types.js";
+
+const STACK_GUARD_FILES: Record<string, string> = {
+  node: "package.json",
+  dotnet: "*.csproj",
+  python: "requirements.txt",
+  rust: "Cargo.toml",
+  go: "go.mod",
+  ruby: "Gemfile",
+  java: "pom.xml",
+};
+
+function guardCondition(stack: DetectedStack): string {
+  const guard = stack.markerFile ? basename(stack.markerFile) : STACK_GUARD_FILES[stack.name];
+  if (!guard) return "";
+  if (guard.includes("*")) {
+    return `ls ${guard} 1>/dev/null 2>&1`;
+  }
+  return `[ -f "${guard}" ]`;
+}
 
 export function generatePostCreate(
   scan: ScanResult,
   templateAdditions?: TemplateAdditions
 ): string {
   const installSteps = scan.stacks
-    .flatMap((s) => s.postCreateSteps)
-    .map((step) => `echo "Running: ${step}..."\n${step}`)
+    .filter((s) => s.postCreateSteps.length > 0)
+    .map((s) => {
+      const steps = s.postCreateSteps
+        .map((step) => `  echo "Running: ${step}..."\n  ${step}`)
+        .join("\n\n");
+      const condition = guardCondition(s);
+      if (!condition) return steps.replace(/^  /gm, "");
+      return `if ${condition}; then\n${steps}\nfi`;
+    })
     .join("\n\n");
 
   const templateSteps = templateAdditions?.postCreateSteps
