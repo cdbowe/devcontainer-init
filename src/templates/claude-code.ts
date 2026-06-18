@@ -85,7 +85,7 @@ export const claudeCodeTemplate: Template = {
                 type: "list",
                 name: "pickedVersion",
                 message: "Select version:",
-                choices: allVersions.slice(0, 30).map((v) => ({
+                choices: allVersions.map((v) => ({
                   name: v,
                   value: v,
                 })),
