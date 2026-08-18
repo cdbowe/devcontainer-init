@@ -29,6 +29,16 @@ export interface GeneratorOptions {
   force: boolean;
 }
 
+/** Choices that shape the generated files but aren't discovered by scanning. */
+export interface GenerationSettings {
+  /** IANA timezone id baked into the container, e.g. "America/New_York". */
+  timezone: string;
+}
+
+export const DEFAULT_SETTINGS: GenerationSettings = {
+  timezone: "UTC",
+};
+
 export interface StackDetector {
   name: string;
   detect(rootPath: string): Promise<DetectedStack | null>;

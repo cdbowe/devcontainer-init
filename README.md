@@ -55,6 +55,7 @@ Options:
   -p, --path <dir>          Path to the project root (default: ".")
   -n, --name <name>         Override the project name
   -t, --template <names...> Apply templates (e.g., --template claude-code)
+  --timezone <tz>           IANA timezone for the container (default: detected from the host)
   --dry-run                 Show what would be generated without writing files
   --force                   Overwrite existing .devcontainer directory
   --no-interactive          Skip the wizard and use defaults
@@ -67,9 +68,10 @@ Options:
 By default, `devcontainer-init` runs an interactive wizard that:
 1. Shows detected stacks and lets you confirm
 2. Prompts for project name
-3. Lets you select templates to apply (e.g., Claude Code)
-4. Runs each selected template's own prompts (version pickers, integrations)
-5. Shows a summary and asks for confirmation before writing files
+3. Prompts for the container timezone, preselecting the one detected from the host
+4. Lets you select templates to apply (e.g., Claude Code)
+5. Runs each selected template's own prompts (version pickers, integrations)
+6. Shows a summary and asks for confirmation before writing files
 
 Template prompts run *before* the final confirmation, so the summary reflects everything you chose and nothing is written until you confirm.
 
@@ -78,6 +80,49 @@ Use `--no-interactive` with `--template` for CI/scripted usage:
 ```bash
 devcontainer-init --template claude-code --no-interactive
 ```
+
+### Timezone
+
+Containers no longer hard-code UTC. The wizard offers a dropdown showing each zone's
+IANA name, its tzdata abbreviation, and its current UTC offset:
+
+```
+? Container timezone: (Use arrow keys)
+❯ America/New_York (EDT, -04:00) — detected from /etc/localtime
+  UTC (UTC, +00:00)
+  America/Los_Angeles (PDT, -07:00)
+  ...
+  Pick from the full IANA list...
+```
+
+The shortlist covers the common offsets; `Pick from the full IANA list...` opens all
+~420 zones, where you can type to jump (e.g. typing `Pacific/Chat` lands on
+`Pacific/Chatham`).
+
+**Host detection.** The default is guessed in order from `$TZ`, `/etc/timezone`, the
+`/etc/localtime` symlink, and finally the JS runtime's resolved zone, falling back to
+UTC. The selected line reports which source it came from. Note this reads the machine
+`devcontainer-init` runs on — if you run it from inside a container, you'll see that
+container's zone (usually UTC) rather than the Docker host's. Use `--timezone` to set
+it explicitly:
+
+```bash
+devcontainer-init --timezone Asia/Kolkata --no-interactive
+```
+
+Abbreviations come from tzdata, so they're the real ones (`EDT`, `IST`, `CEST`) rather
+than fixed-width labels. Zones that have no letter abbreviation use tzdata's numeric
+form (`Asia/Dubai (+04, +04:00)`), and zones observing DST show their *current*
+abbreviation and offset. On hosts without tzdata the abbreviation falls back to a
+`UTC±HH:MM` label.
+
+The choice lands in three places in the generated output:
+
+- `ARG TZ=<zone>` in the `Dockerfile`, with `tzdata` installed and `/etc/localtime` +
+  `/etc/timezone` configured so `date` and log timestamps are correct
+- `build.args.TZ` in `devcontainer.json`, so you can change it and rebuild without
+  editing the Dockerfile
+- `remoteEnv.TZ`, so VS Code-spawned processes agree with the shell
 
 ## Templates
 
@@ -114,6 +159,8 @@ CLAUDE_CODE_TOOLS_DIR=../claude-code-tools devcontainer-init --template claude-c
 Mount paths are resolved **on the Docker host** when the generated project is opened, but the sibling-checkout probe runs against whatever filesystem `devcontainer-init` is executing on. If you run it from inside a devcontainer (including this repo's own, via `npm run dev`), the probe sees the container — so a checkout that exists on the host looks missing and the integration is skipped.
 
 Prefer a **relative** path (`../claude-code-tools`): it's anchored to `${localWorkspaceFolder}` on the host at container-create time, so it's correct even when unverifiable locally. An **absolute** container path like `/workspaces/claude-code-tools` would be wrong on the host. Either answer the wizard prompt explicitly, or set `CLAUDE_CODE_TOOLS_DIR`.
+
+Timezone detection has the same blind spot: from inside a container it reports the container's zone, not the host's. Pass `--timezone` or pick from the dropdown.
 
 ## How It Works
 

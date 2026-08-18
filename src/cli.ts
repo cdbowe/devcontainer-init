@@ -18,6 +18,13 @@ import {
   type TemplateAdditions,
 } from "./templates/index.js";
 import { runWizard } from "./wizard.js";
+import {
+  describeTimezone,
+  detectHostTimezone,
+  formatTimezone,
+  isValidTimezone,
+} from "./timezones.js";
+import type { GenerationSettings } from "./types.js";
 
 const program = new Command();
 
@@ -33,6 +40,10 @@ program
     "-t, --template <names...>",
     "apply templates (e.g., --template claude-code)"
   )
+  .option(
+    "--timezone <tz>",
+    "IANA timezone for the container (default: detected from the host)"
+  )
   .option("--dry-run", "show what would be generated without writing files", false)
   .option("--force", "overwrite existing .devcontainer directory", false)
   .option("--no-interactive", "skip the wizard and use defaults")
@@ -43,6 +54,13 @@ program
     if (options.name) {
       scan.projectName = options.name;
     }
+
+    // An explicit --timezone wins everywhere; otherwise the wizard asks and
+    // non-interactive runs fall back to whatever the host looks like.
+    const timezoneOverride = resolveTimezoneOverride(options.timezone);
+    let settings: GenerationSettings = {
+      timezone: timezoneOverride ?? detectHostTimezone().id,
+    };
 
     let templateAdditions: TemplateAdditions | undefined;
 
@@ -66,11 +84,12 @@ program
         templateAdditions = mergeTemplateAdditions(additions);
       }
 
-      printScanSummary(scan);
+      printScanSummary(scan, settings);
     } else if (options.interactive !== false) {
       // Interactive wizard
-      const wizardResult = await runWizard(scan);
+      const wizardResult = await runWizard(scan, { timezone: timezoneOverride });
       scan.projectName = wizardResult.projectName;
+      settings = { timezone: wizardResult.timezone };
 
       if (!wizardResult.confirmed) {
         console.log(chalk.yellow("Aborted."));
@@ -85,11 +104,15 @@ program
       templateAdditions = wizardResult.templateAdditions;
     } else {
       // Non-interactive, no templates
-      printScanSummary(scan);
+      printScanSummary(scan, settings);
     }
 
-    const dockerfile = generateDockerfile(scan, templateAdditions);
-    const devcontainerJson = generateDevcontainerJson(scan, templateAdditions);
+    const dockerfile = generateDockerfile(scan, templateAdditions, settings);
+    const devcontainerJson = generateDevcontainerJson(
+      scan,
+      templateAdditions,
+      settings
+    );
     const postCreate = generatePostCreate(scan, templateAdditions);
     const postStart = generatePostStart(scan, templateAdditions);
 
@@ -145,7 +168,24 @@ program
     );
   });
 
-function printScanSummary(scan: ReturnType<typeof scanProject> extends Promise<infer T> ? T : never): void {
+function resolveTimezoneOverride(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const timezone = value.trim();
+  if (!isValidTimezone(timezone)) {
+    console.log(
+      chalk.red(
+        `Unknown timezone: ${timezone}. Expected an IANA id such as America/New_York.`
+      )
+    );
+    process.exit(1);
+  }
+  return timezone;
+}
+
+function printScanSummary(
+  scan: ReturnType<typeof scanProject> extends Promise<infer T> ? T : never,
+  settings: GenerationSettings
+): void {
   console.log(chalk.bold("\ndevcontainer-init"));
   console.log(chalk.dim(`Scanning ${scan.rootPath}...\n`));
 
@@ -164,6 +204,9 @@ function printScanSummary(scan: ReturnType<typeof scanProject> extends Promise<i
 
   console.log(
     `Root entries: ${scan.rootEntries.length} items (${scan.rootEntries.filter((e) => e.type === "directory").length} dirs, ${scan.rootEntries.filter((e) => e.type === "file").length} files)`
+  );
+  console.log(
+    `Timezone: ${formatTimezone(describeTimezone(settings.timezone))}`
   );
   if (scan.hasDocker) console.log(chalk.dim("Docker config detected — adding docker-outside-of-docker feature"));
   if (scan.hasGit) console.log(chalk.dim("Git repo detected"));

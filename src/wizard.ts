@@ -8,9 +8,18 @@ import {
   type TemplateAdditions,
 } from "./templates/index.js";
 import { stackChoices } from "./scanner.js";
+import {
+  commonTimezones,
+  describeTimezone,
+  describeTimezones,
+  detectHostTimezone,
+  formatTimezone,
+  listTimezones,
+} from "./timezones.js";
 
 export interface WizardResult {
   projectName: string;
+  timezone: string;
   selectedStacks: DetectedStack[];
   templates: Template[];
   /** Configured additions for the selected templates, or undefined if none. */
@@ -18,7 +27,87 @@ export interface WizardResult {
   confirmed: boolean;
 }
 
-export async function runWizard(scan: ScanResult): Promise<WizardResult> {
+const PICK_FROM_FULL_LIST = "__all__";
+
+/**
+ * Two-step picker, mirroring the claude-code template's version prompt: a short
+ * list of likely answers with the detected host zone preselected, plus an
+ * escape hatch into the full IANA list.
+ */
+async function promptTimezone(): Promise<string> {
+  const detected = detectHostTimezone();
+
+  const shortlist = [
+    detected.id,
+    ...commonTimezones().filter((id) => id !== detected.id),
+  ];
+  const described = describeTimezones(shortlist);
+
+  const choices = described.map((info, index) => ({
+    name:
+      index === 0
+        ? `${formatTimezone(info)} — detected from ${detected.source}`
+        : formatTimezone(info),
+    value: info.id,
+  }));
+  choices.push({
+    name: "Pick from the full IANA list...",
+    value: PICK_FROM_FULL_LIST,
+  });
+
+  if (detected.source === "fallback") {
+    console.log(
+      chalk.dim(
+        "  Could not detect a host timezone — defaulting to UTC.\n" +
+          "  Note: when devcontainer-init runs inside a container, this reads the\n" +
+          "  container's timezone rather than the Docker host's."
+      )
+    );
+  }
+
+  const { timezone } = await inquirer.prompt<{ timezone: string }>([
+    {
+      type: "list",
+      name: "timezone",
+      message: "Container timezone:",
+      choices,
+      default: detected.id,
+      loop: false,
+    },
+  ]);
+
+  if (timezone !== PICK_FROM_FULL_LIST) return timezone;
+
+  console.log(chalk.dim("Type to jump to a zone; arrow keys to scroll."));
+  const allZones = describeTimezones(listTimezones());
+
+  const { pickedTimezone } = await inquirer.prompt<{ pickedTimezone: string }>([
+    {
+      type: "list",
+      name: "pickedTimezone",
+      message: "Select timezone:",
+      choices: allZones.map((info) => ({
+        name: formatTimezone(info),
+        value: info.id,
+      })),
+      default: detected.id,
+      loop: false,
+      pageSize: 15,
+    },
+  ]);
+
+  return pickedTimezone;
+}
+
+export interface WizardOptions {
+  /** Set by --timezone; when present the timezone prompt is skipped. */
+  timezone?: string;
+}
+
+export async function runWizard(
+  scan: ScanResult,
+  options: WizardOptions = {}
+): Promise<WizardResult> {
   console.log(chalk.bold("\ndevcontainer-init setup wizard\n"));
 
   let selectedStacks: DetectedStack[] = [];
@@ -65,6 +154,8 @@ export async function runWizard(scan: ScanResult): Promise<WizardResult> {
     },
   ]);
 
+  const timezone = options.timezone ?? (await promptTimezone());
+
   const availableTemplates = listTemplates();
   let selectedTemplates: Template[] = [];
 
@@ -106,6 +197,9 @@ export async function runWizard(scan: ScanResult): Promise<WizardResult> {
   console.log(chalk.bold("\nSummary:"));
   console.log(`  Project: ${chalk.cyan(projectName)}`);
   console.log(
+    `  Timezone: ${chalk.cyan(formatTimezone(describeTimezone(timezone)))}`
+  );
+  console.log(
     `  Stacks: ${allStacks.length > 0 ? allStacks.map((s) => s.name).join(", ") : "none (minimal Debian)"}`
   );
   console.log(
@@ -132,6 +226,7 @@ export async function runWizard(scan: ScanResult): Promise<WizardResult> {
 
   return {
     projectName,
+    timezone,
     selectedStacks,
     templates: selectedTemplates,
     templateAdditions,

@@ -1,4 +1,4 @@
-import type { ScanResult } from "../types.js";
+import { DEFAULT_SETTINGS, type GenerationSettings, type ScanResult } from "../types.js";
 import type { TemplateAdditions } from "../templates/types.js";
 
 function getSdkInstallBlock(stack: string, version?: string): string {
@@ -93,7 +93,8 @@ ENV JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64`;
 
 export function generateDockerfile(
   scan: ScanResult,
-  templateAdditions?: TemplateAdditions
+  templateAdditions?: TemplateAdditions,
+  settings: GenerationSettings = DEFAULT_SETTINGS
 ): string {
   const sdkBlocks = scan.stacks
     .map((s) => getSdkInstallBlock(s.name, s.version))
@@ -113,12 +114,16 @@ ARG USERNAME=node
 ARG USER_UID=1000
 ARG USER_GID=\${USER_UID}
 ARG WORKSPACE_DIR=/workspaces/${scan.projectName}
+# IANA timezone; override via build.args in devcontainer.json.
+ARG TZ=${settings.timezone}
+# Build-only: keeps tzdata from prompting during the package install below.
+ARG DEBIAN_FRONTEND=noninteractive
 
 ######################
 # Environment
 ######################
 
-ENV TZ=UTC
+ENV TZ=\${TZ}
 ENV SHELL=/bin/bash
 ENV HOME="/home/\${USERNAME}"
 ENV DEVCONTAINER=true
@@ -143,6 +148,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
   unzip \\
   bash \\
   bash-completion \\
+  tzdata \\
+  && ln -snf /usr/share/zoneinfo/\${TZ} /etc/localtime \\
+  && echo "\${TZ}" > /etc/timezone \\
+  && dpkg-reconfigure -f noninteractive tzdata \\
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 ${sdkBlocks.join("\n")}
 

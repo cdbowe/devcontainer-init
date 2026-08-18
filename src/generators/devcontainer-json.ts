@@ -1,4 +1,4 @@
-import type { ScanResult } from "../types.js";
+import { DEFAULT_SETTINGS, type GenerationSettings, type ScanResult } from "../types.js";
 import type { TemplateAdditions } from "../templates/types.js";
 
 interface DevcontainerConfig {
@@ -24,7 +24,8 @@ interface DevcontainerConfig {
 
 export function generateDevcontainerJson(
   scan: ScanResult,
-  templateAdditions?: TemplateAdditions
+  templateAdditions?: TemplateAdditions,
+  settings: GenerationSettings = DEFAULT_SETTINGS
 ): string {
   const extensions = new Set<string>();
   for (const stack of scan.stacks) {
@@ -56,6 +57,9 @@ export function generateDevcontainerJson(
   const remoteEnv: Record<string, string> = {
     LOCAL_WORKSPACE_FOLDER: "${localWorkspaceFolder}",
     WORKSPACE_DIR: `/workspaces/${scan.projectName}`,
+    // Mirrors the image's ENV TZ so VS Code-spawned processes agree with the
+    // shell, and so changing it here doesn't require a rebuild to take effect.
+    TZ: settings.timezone,
   };
   if (templateAdditions) {
     Object.assign(remoteEnv, templateAdditions.envVars);
@@ -69,6 +73,7 @@ export function generateDevcontainerJson(
       dockerfile: "Dockerfile",
       args: {
         WORKSPACE_DIR: `/workspaces/${scan.projectName}`,
+        TZ: settings.timezone,
       },
     },
     features,
