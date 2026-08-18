@@ -32,6 +32,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   gnupg2 \
   sudo \
   jq \
+  bc \
   less \
   procps \
   nano \
@@ -70,4 +71,4 @@ WORKDIR ${WORKSPACE_DIR}
 ######################
 
 USER ${USERNAME}
-RUN curl -fsSL https://claude.ai/install.sh | bash -s -- 2.1.197
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- 2.1.219
