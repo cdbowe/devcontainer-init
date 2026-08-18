@@ -68,7 +68,10 @@ By default, `devcontainer-init` runs an interactive wizard that:
 1. Shows detected stacks and lets you confirm
 2. Prompts for project name
 3. Lets you select templates to apply (e.g., Claude Code)
-4. Asks for confirmation before writing files
+4. Runs each selected template's own prompts (version pickers, integrations)
+5. Shows a summary and asks for confirmation before writing files
+
+Template prompts run *before* the final confirmation, so the summary reflects everything you chose and nothing is written until you confirm.
 
 Use `--no-interactive` with `--template` for CI/scripted usage:
 
@@ -82,9 +85,35 @@ Templates layer additional tooling on top of the base devcontainer. Available te
 
 | Template | What It Adds |
 |----------|-------------|
-| `claude-code` | Claude Code CLI (version picker), shared `claude-code-home` volume, VS Code extension |
+| `claude-code` | Claude Code CLI (version picker), shared `claude-code-home` volume, VS Code extension, optional [claude-code-tools](https://github.com/cdbowe/claude-code-tools) install |
 
 Use `--template` to apply directly, or select from the wizard's template picker.
+
+### claude-code-tools Integration
+
+The `claude-code` template can wire in a local [claude-code-tools](https://github.com/cdbowe/claude-code-tools) checkout so your `settings.json`, `settings.local.json`, and statusline work in the new container out of the box.
+
+When enabled, the template adds:
+
+- A **read-only bind mount** of your host checkout at `/opt/claude-code-tools`.
+- A **`.claude/` bind mount** at the workspace root, so project-scoped config is a real folder Claude Code picks up when run from the workspace.
+- Two **post-create steps** that run the tools repo's own `install.sh`:
+  - into `$CLAUDE_CONFIG_DIR` (the shared `claude-code-home` volume) — `settings.json` + statusline, so the statusline resolves from any directory and persists across rebuilds;
+  - into `$WORKSPACE_DIR/.claude` (with `--with-local`) — same, plus creating a fresh, empty `settings.local.json` when none exists. That file is never copied from the checkout, so personal overrides can't leak into a new workspace.
+
+The install layout lives in `claude-code-tools` (its `install.sh` owns it); this template only mounts the checkout and invokes it. In the **interactive wizard** you're prompted for the checkout path (default: sibling `../claude-code-tools`). In **non-interactive** runs the integration is only added when a sibling `../claude-code-tools` exists, so scripted generation never emits a mount pointing at a missing folder.
+
+Set `CLAUDE_CODE_TOOLS_DIR` to opt in explicitly and skip that check:
+
+```bash
+CLAUDE_CODE_TOOLS_DIR=../claude-code-tools devcontainer-init --template claude-code --no-interactive
+```
+
+#### Running devcontainer-init from inside a container
+
+Mount paths are resolved **on the Docker host** when the generated project is opened, but the sibling-checkout probe runs against whatever filesystem `devcontainer-init` is executing on. If you run it from inside a devcontainer (including this repo's own, via `npm run dev`), the probe sees the container — so a checkout that exists on the host looks missing and the integration is skipped.
+
+Prefer a **relative** path (`../claude-code-tools`): it's anchored to `${localWorkspaceFolder}` on the host at container-create time, so it's correct even when unverifiable locally. An **absolute** container path like `/workspaces/claude-code-tools` would be wrong on the host. Either answer the wizard prompt explicitly, or set `CLAUDE_CODE_TOOLS_DIR`.
 
 ## How It Works
 

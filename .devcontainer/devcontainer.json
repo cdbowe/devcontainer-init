@@ -34,7 +34,9 @@
     "source=${localWorkspaceFolder}/README.md,target=${containerWorkspaceFolder}/README.md,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/src,target=${containerWorkspaceFolder}/src,type=bind,consistency=cached",
     "source=${localWorkspaceFolder}/tsconfig.json,target=${containerWorkspaceFolder}/tsconfig.json,type=bind,consistency=cached",
-    "source=claude-code-home,target=/home/node/.claude,type=volume"
+    "source=claude-code-home,target=/home/node/.claude,type=volume",
+    "source=${localWorkspaceFolder}/../../AI/claude-code-tools,target=/opt/claude-code-tools,type=bind,readonly",
+    "source=${localWorkspaceFolder}/.claude,target=${containerWorkspaceFolder}/.claude,type=bind,consistency=cached"
   ],
   "postCreateCommand": "sudo chmod +x .devcontainer/scripts/*.sh && bash .devcontainer/scripts/post-create.sh",
   "postStartCommand": "sudo chmod +x .devcontainer/scripts/*.sh && bash .devcontainer/scripts/post-start.sh"

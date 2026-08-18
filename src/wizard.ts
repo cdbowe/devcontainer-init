@@ -1,13 +1,20 @@
 import inquirer from "inquirer";
 import chalk from "chalk";
 import type { DetectedStack, ScanResult } from "./types.js";
-import { listTemplates, type Template } from "./templates/index.js";
+import {
+  listTemplates,
+  mergeTemplateAdditions,
+  type Template,
+  type TemplateAdditions,
+} from "./templates/index.js";
 import { stackChoices } from "./scanner.js";
 
 export interface WizardResult {
   projectName: string;
   selectedStacks: DetectedStack[];
   templates: Template[];
+  /** Configured additions for the selected templates, or undefined if none. */
+  templateAdditions?: TemplateAdditions;
   confirmed: boolean;
 }
 
@@ -81,6 +88,19 @@ export async function runWizard(scan: ScanResult): Promise<WizardResult> {
       .filter(Boolean);
   }
 
+  // Configure templates before the summary so their prompts come first and the
+  // final confirmation is genuinely the last question asked.
+  let templateAdditions: TemplateAdditions | undefined;
+  if (selectedTemplates.length > 0) {
+    const additions: TemplateAdditions[] = [];
+    for (const template of selectedTemplates) {
+      additions.push(
+        await template.configure({ interactive: true, projectPath: scan.rootPath })
+      );
+    }
+    templateAdditions = mergeTemplateAdditions(additions);
+  }
+
   const allStacks = [...scan.stacks, ...selectedStacks];
 
   console.log(chalk.bold("\nSummary:"));
@@ -91,6 +111,11 @@ export async function runWizard(scan: ScanResult): Promise<WizardResult> {
   console.log(
     `  Templates: ${selectedTemplates.length > 0 ? selectedTemplates.map((t) => t.name).join(", ") : "none"}`
   );
+  if (templateAdditions && templateAdditions.postCreateSteps.length > 0) {
+    console.log(
+      `  Post-create steps: ${chalk.cyan(String(templateAdditions.postCreateSteps.length))}`
+    );
+  }
   console.log(
     `  Root entries: ${scan.rootEntries.length} items`
   );
@@ -105,5 +130,11 @@ export async function runWizard(scan: ScanResult): Promise<WizardResult> {
     },
   ]);
 
-  return { projectName, selectedStacks, templates: selectedTemplates, confirmed };
+  return {
+    projectName,
+    selectedStacks,
+    templates: selectedTemplates,
+    templateAdditions,
+    confirmed,
+  };
 }

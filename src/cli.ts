@@ -55,7 +55,12 @@ program
           console.log(chalk.red(`Unknown template: ${name}`));
           process.exit(1);
         }
-        additions.push(await template.configure({ interactive: options.interactive !== false }));
+        additions.push(
+          await template.configure({
+            interactive: options.interactive !== false,
+            projectPath: rootPath,
+          })
+        );
       }
       if (additions.length > 0) {
         templateAdditions = mergeTemplateAdditions(additions);
@@ -76,13 +81,8 @@ program
         scan.stacks.push(...wizardResult.selectedStacks);
       }
 
-      if (wizardResult.templates.length > 0) {
-        const additions: TemplateAdditions[] = [];
-        for (const template of wizardResult.templates) {
-          additions.push(await template.configure({ interactive: true }));
-        }
-        templateAdditions = mergeTemplateAdditions(additions);
-      }
+      // Templates are configured inside the wizard, before its confirmation.
+      templateAdditions = wizardResult.templateAdditions;
     } else {
       // Non-interactive, no templates
       printScanSummary(scan);

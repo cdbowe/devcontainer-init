@@ -1,4 +1,6 @@
 import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { isAbsolute, resolve } from "node:path";
 import inquirer from "inquirer";
 import chalk from "chalk";
 import type { Template, TemplateAdditions, TemplateConfigureOptions } from "./types.js";
@@ -34,11 +36,111 @@ function fetchAllVersions(): string[] {
   }
 }
 
+const CONTAINER_TOOLS_DIR = "/opt/claude-code-tools";
+const DEFAULT_TOOLS_SIBLING = "../claude-code-tools";
+
+interface ToolsIntegration {
+  mounts: string[];
+  postCreateSteps: string[];
+}
+
+/**
+ * Optionally wire in a local `claude-code-tools` checkout so its
+ * settings.json / settings.local.json / statusline install into the new
+ * container out of the box. The tools repo owns the install layout via its
+ * own `install.sh`; devcontainer-init just mounts the checkout read-only and
+ * invokes that installer at post-create time.
+ */
+async function configureToolsIntegration(
+  interactive: boolean,
+  projectPath: string
+): Promise<ToolsIntegration> {
+  const empty: ToolsIntegration = { mounts: [], postCreateSteps: [] };
+
+  // Explicit opt-in wins over filesystem probing. This matters when
+  // devcontainer-init itself runs inside a container: the probe below sees the
+  // container filesystem, not the host layout the mount is resolved against.
+  const envPath = process.env.CLAUDE_CODE_TOOLS_DIR?.trim();
+
+  // Resolve where a sibling checkout would live, for defaults. Only meaningful
+  // when running on the host; may be a false negative from inside a container.
+  const siblingPath = resolve(projectPath, DEFAULT_TOOLS_SIBLING);
+  const siblingExists = existsSync(siblingPath);
+
+  let hostPath: string | null = null;
+
+  if (envPath) {
+    hostPath = envPath;
+  } else if (interactive) {
+    const { enable } = await inquirer.prompt<{ enable: boolean }>([
+      {
+        type: "confirm",
+        name: "enable",
+        message:
+          "Install settings + statusline from a local claude-code-tools checkout?",
+        default: siblingExists,
+      },
+    ]);
+    if (!enable) return empty;
+
+    const { path } = await inquirer.prompt<{ path: string }>([
+      {
+        type: "input",
+        name: "path",
+        message:
+          "Path to your claude-code-tools checkout (relative to the host workspace):",
+        default: DEFAULT_TOOLS_SIBLING,
+      },
+    ]);
+    hostPath = path.trim() || DEFAULT_TOOLS_SIBLING;
+  } else {
+    // Non-interactive: only wire it in when a sibling checkout is present,
+    // so scripted runs never produce a mount pointing at a missing folder.
+    // Set CLAUDE_CODE_TOOLS_DIR to opt in when the checkout isn't visible here.
+    if (!siblingExists) return empty;
+    hostPath = DEFAULT_TOOLS_SIBLING;
+  }
+
+  // The mount source is resolved on the HOST at container-create time, so a
+  // path we can't see locally is not necessarily wrong — but it's worth a nudge.
+  if (isAbsolute(hostPath) && !existsSync(hostPath)) {
+    console.log(
+      chalk.yellow(
+        `  Note: ${hostPath} is not visible from here. It must be a valid path on the Docker host.`
+      )
+    );
+  }
+
+  // Express the bind-mount source. Absolute paths are used verbatim; relative
+  // paths are anchored to the host workspace folder at container-create time.
+  const mountSource = isAbsolute(hostPath)
+    ? hostPath
+    : `\${localWorkspaceFolder}/${hostPath}`;
+
+  return {
+    mounts: [
+      `source=${mountSource},target=${CONTAINER_TOOLS_DIR},type=bind,readonly`,
+      // Surface project-scoped config as a real .claude/ at the workspace root.
+      "source=${localWorkspaceFolder}/.claude,target=${containerWorkspaceFolder}/.claude,type=bind,consistency=cached",
+    ],
+    postCreateSteps: [
+      // User scope (shared volume = $CLAUDE_CONFIG_DIR): settings + statusline,
+      // so the statusline works from any directory and persists across rebuilds.
+      `if [ -x ${CONTAINER_TOOLS_DIR}/install.sh ]; then bash ${CONTAINER_TOOLS_DIR}/install.sh --dir "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; fi`,
+      // Project scope (workspace .claude/): same, plus seed settings.local.json.
+      `if [ -x ${CONTAINER_TOOLS_DIR}/install.sh ]; then bash ${CONTAINER_TOOLS_DIR}/install.sh --dir "\${WORKSPACE_DIR}/.claude" --with-local; fi`,
+    ],
+  };
+}
+
 export const claudeCodeTemplate: Template = {
   name: "claude-code",
   description: "Claude Code CLI with shared credential volume",
 
-  async configure({ interactive }: TemplateConfigureOptions): Promise<TemplateAdditions> {
+  async configure({
+    interactive,
+    projectPath,
+  }: TemplateConfigureOptions): Promise<TemplateAdditions> {
     console.log(chalk.dim("\nFetching Claude Code versions from npm..."));
     const distTags = fetchDistTags();
 
@@ -115,6 +217,11 @@ export const claudeCodeTemplate: Template = {
 
     console.log(chalk.green(`  Using Claude Code ${version}\n`));
 
+    const tools = await configureToolsIntegration(interactive, projectPath);
+    if (tools.mounts.length > 0) {
+      console.log(chalk.green("  Wiring in claude-code-tools install step\n"));
+    }
+
     return {
       dockerfileSteps: [
         `
@@ -127,12 +234,13 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${version}`,
       ],
       mounts: [
         "source=claude-code-home,target=/home/node/.claude,type=volume",
+        ...tools.mounts,
       ],
       extensions: ["Anthropic.claude-code"],
       envVars: {
         CLAUDE_CONFIG_DIR: "/home/node/.claude",
       },
-      postCreateSteps: [],
+      postCreateSteps: tools.postCreateSteps,
       postStartSteps: [],
       features: {},
     };

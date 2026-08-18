@@ -10,6 +10,8 @@ export interface TemplateAdditions {
 
 export interface TemplateConfigureOptions {
   interactive: boolean;
+  /** Absolute path to the project root being scanned (host-side). */
+  projectPath: string;
 }
 
 export interface Template {

@@ -23,9 +23,20 @@ fi
 # Project Dependencies
 ###########################################
 
-echo "Running: npm install..."
-npm install
+if [ -f "package.json" ]; then
+  echo "Running: npm install..."
+  npm install
+fi
 
+###########################################
+# Template Setup
+###########################################
+
+echo "Running: if [ -x /opt/claude-code-tools/install.sh ]; then bash /opt/claude-code-tools/install.sh --dir "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; fi..."
+if [ -x /opt/claude-code-tools/install.sh ]; then bash /opt/claude-code-tools/install.sh --dir "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; fi
+
+echo "Running: if [ -x /opt/claude-code-tools/install.sh ]; then bash /opt/claude-code-tools/install.sh --dir "${WORKSPACE_DIR}/.claude" --with-local; fi..."
+if [ -x /opt/claude-code-tools/install.sh ]; then bash /opt/claude-code-tools/install.sh --dir "${WORKSPACE_DIR}/.claude" --with-local; fi
 
 echo ""
 echo "Post-create setup complete!"
