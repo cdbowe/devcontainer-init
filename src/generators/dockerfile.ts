@@ -10,7 +10,7 @@ function getSdkInstallBlock(stack: string, version?: string): string {
 ######################
 
 RUN apt-get update && apt-get install -y --no-install-recommends \\
-    wget apt-transport-https \\
+    wget apt-transport-https libicu-dev \\
   && wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh \\
   && chmod +x /tmp/dotnet-install.sh \\
   && /tmp/dotnet-install.sh --channel ${version ?? "8.0"} --install-dir /usr/share/dotnet \\
