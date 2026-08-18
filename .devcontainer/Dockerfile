@@ -15,7 +15,7 @@ ARG WORKSPACE_DIR=/workspaces/devcontainer-init
 # Environment
 ######################
 
-ENV TZ=UTC
+ENV TZ="America/New_York"
 ENV SHELL=/bin/bash
 ENV HOME="/home/${USERNAME}"
 ENV DEVCONTAINER=true

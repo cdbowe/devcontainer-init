@@ -21,7 +21,8 @@
   "remoteEnv": {
     "LOCAL_WORKSPACE_FOLDER": "${localWorkspaceFolder}",
     "WORKSPACE_DIR": "/workspaces/devcontainer-init",
-    "CLAUDE_CONFIG_DIR": "/home/node/.claude"
+    "CLAUDE_CONFIG_DIR": "/home/node/.claude",
+    "TZ": "America/New_York"
   },
   "remoteUser": "node",
   "mounts": [
