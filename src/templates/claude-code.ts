@@ -172,6 +172,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
       ? {}
       : { WORKTREE_MAIN_DIR: "${containerWorkspaceFolder}/main" },
     postCreateSteps: [
+      // Create the worktree main dir here rather than in the Dockerfile: this
+      // runs after the bind mounts are layered onto the workspace root, so the
+      // directory is guaranteed visible, and it runs as remoteUser, so it ends
+      // up owned by the right user without a chown. Repeats the scripts' own
+      // fallback so an edited WORKTREE_MAIN_DIR in devcontainer.json is honored.
+      ...(minimalTools
+        ? []
+        : [`mkdir -p "\${WORKTREE_MAIN_DIR:-\${WORKSPACE_DIR}/main}"`]),
       // User scope (shared volume = $CLAUDE_CONFIG_DIR): settings + statusline,
       // so the statusline works from any directory and persists across rebuilds.
       `if [ -x ${CONTAINER_TOOLS_DIR}/install.sh ]; then bash ${CONTAINER_TOOLS_DIR}/install.sh ${modeFlag} --dir "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; fi`,

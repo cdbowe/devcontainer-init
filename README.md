@@ -146,6 +146,7 @@ When enabled, the template adds:
 - A **read-only bind mount** of your host checkout at `/opt/claude-code-tools`.
 - **`python3`** in the image — the toolkit's `/prd` command set shells out to it. Only added when the checkout is wired in, so plain containers stay slim.
 - A **`WORKTREE_MAIN_DIR` remoteEnv** entry, set to `${containerWorkspaceFolder}/main` — the location the toolkit's worktree scripts treat as the main checkout. Full toolkit only; `--minimal` doesn't ship those scripts. The scripts already default to the same path (`${WORKTREE_MAIN_DIR:-${WORKSPACE_DIR}/main}`), so this changes no behavior — it makes the location visible and editable in `devcontainer.json` instead of buried in a shell default.
+- A **post-create step creating that directory**: `mkdir -p "${WORKTREE_MAIN_DIR:-${WORKSPACE_DIR}/main}"`. It runs after the bind mounts are layered onto the workspace root and as `remoteUser`, so the directory is both visible and correctly owned. Editing `WORKTREE_MAIN_DIR` in `devcontainer.json` moves what gets created.
 - A **`.claude/` bind mount** at the workspace root, so project-scoped config is a real folder Claude Code picks up when run from the workspace.
 - Two **post-create steps** that run the tools repo's own `install.sh`:
   - into `$CLAUDE_CONFIG_DIR` (the shared `claude-code-home` volume) — so the statusline resolves from any directory and persists across rebuilds;
