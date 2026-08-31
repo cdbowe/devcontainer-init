@@ -21,6 +21,15 @@ function guardCondition(stack: DetectedStack): string {
   return `[ -f "${guard}" ]`;
 }
 
+/**
+ * Steps are echoed before they run. A multi-line step would spill into the echo
+ * and mangle it, so label those by their first line instead.
+ */
+function stepLabel(step: string): string {
+  const [first] = step.split("\n");
+  return step.includes("\n") ? `${first} ...` : step;
+}
+
 export function generatePostCreate(
   scan: ScanResult,
   templateAdditions?: TemplateAdditions
@@ -38,7 +47,7 @@ export function generatePostCreate(
     .join("\n\n");
 
   const templateSteps = templateAdditions?.postCreateSteps
-    .map((step) => `echo "Running: ${step}..."\n${step}`)
+    .map((step) => `echo "Running: ${stepLabel(step)}..."\n${step}`)
     .join("\n\n");
 
   return `#!/bin/bash

@@ -3,6 +3,12 @@ export interface TemplateAdditions {
   mounts: string[];
   extensions: string[];
   envVars: Record<string, string>;
+  /**
+   * Commands run on the HOST before the container is created. Needed for bind
+   * mounts whose source may not exist yet: `docker run --mount type=bind`
+   * fails outright on a missing source rather than creating it.
+   */
+  initializeCommands: string[];
   postCreateSteps: string[];
   postStartSteps: string[];
   features: Record<string, Record<string, unknown>>;

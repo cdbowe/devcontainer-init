@@ -23,6 +23,7 @@ export function mergeTemplateAdditions(
     mounts: [],
     extensions: [],
     envVars: {},
+    initializeCommands: [],
     postCreateSteps: [],
     postStartSteps: [],
     features: {},
@@ -33,6 +34,7 @@ export function mergeTemplateAdditions(
     merged.mounts.push(...a.mounts);
     merged.extensions.push(...a.extensions);
     Object.assign(merged.envVars, a.envVars);
+    merged.initializeCommands.push(...a.initializeCommands);
     merged.postCreateSteps.push(...a.postCreateSteps);
     merged.postStartSteps.push(...a.postStartSteps);
     Object.assign(merged.features, a.features);

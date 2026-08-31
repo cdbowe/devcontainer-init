@@ -18,6 +18,8 @@ interface DevcontainerConfig {
   remoteEnv: Record<string, string>;
   remoteUser: string;
   mounts: string[];
+  /** Omitted from the JSON when no template contributed one. */
+  initializeCommand?: string;
   postCreateCommand: string;
   postStartCommand: string;
 }
@@ -53,6 +55,16 @@ export function generateDevcontainerJson(
   if (templateAdditions) {
     mounts.push(...templateAdditions.mounts);
   }
+  // A template may mount a path the scan also picked up as a root entry — e.g.
+  // the worktree `main/` folder, once it exists on the host and a later run
+  // rescans. Docker rejects two mounts on the same target, so keep the first.
+  const dedupedMounts = dedupeByTarget(mounts);
+
+  // Host-side setup, joined into the single string devcontainer.json allows.
+  const initializeCommand =
+    templateAdditions && templateAdditions.initializeCommands.length > 0
+      ? templateAdditions.initializeCommands.join(" && ")
+      : undefined;
 
   const remoteEnv: Record<string, string> = {
     LOCAL_WORKSPACE_FOLDER: "${localWorkspaceFolder}",
@@ -84,7 +96,8 @@ export function generateDevcontainerJson(
     },
     remoteEnv,
     remoteUser: "node",
-    mounts,
+    mounts: dedupedMounts,
+    initializeCommand,
     postCreateCommand:
       "sudo chmod +x .devcontainer/scripts/*.sh && bash .devcontainer/scripts/post-create.sh",
     postStartCommand:
@@ -92,6 +105,19 @@ export function generateDevcontainerJson(
   };
 
   return JSON.stringify(config, null, 2) + "\n";
+}
+
+function dedupeByTarget(mounts: string[]): string[] {
+  const seen = new Set<string>();
+  return mounts.filter((mount) => {
+    const target = mount
+      .split(",")
+      .find((part) => part.startsWith("target="));
+    if (!target) return true;
+    if (seen.has(target)) return false;
+    seen.add(target);
+    return true;
+  });
 }
 
 function buildMountEntries(scan: ScanResult): string[] {

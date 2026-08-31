@@ -43,6 +43,7 @@ interface ToolsIntegration {
   dockerfileSteps: string[];
   mounts: string[];
   envVars: Record<string, string>;
+  initializeCommands: string[];
   postCreateSteps: string[];
 }
 
@@ -70,6 +71,7 @@ async function configureToolsIntegration(
     dockerfileSteps: [],
     mounts: [],
     envVars: {},
+    initializeCommands: [],
     postCreateSteps: [],
   };
 
@@ -158,7 +160,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
       `source=${mountSource},target=${CONTAINER_TOOLS_DIR},type=bind,readonly`,
       // Surface project-scoped config as a real .claude/ at the workspace root.
       "source=${localWorkspaceFolder}/.claude,target=${containerWorkspaceFolder}/.claude,type=bind,consistency=cached",
+      // Back the worktree main checkout with a host folder, so the repo the
+      // post-create step initializes survives container rebuilds and is
+      // editable from the host. Paired with the initializeCommand below.
+      ...(minimalTools
+        ? []
+        : [
+            "source=${localWorkspaceFolder}/main,target=${containerWorkspaceFolder}/main,type=bind,consistency=cached",
+          ]),
     ],
+    // Runs on the host before the container is created. `docker run --mount
+    // type=bind` errors on a missing source rather than creating it, so
+    // without this the main/ mount above breaks startup on a fresh clone.
+    initializeCommands: minimalTools
+      ? []
+      : ['mkdir -p "${localWorkspaceFolder}/main"'],
     // Only the full toolkit ships the worktree scripts that read this. Their
     // own default is "${WORKTREE_MAIN_DIR:-${WORKSPACE_DIR}/main}", so this
     // sets the same value explicitly — it makes the location visible and
@@ -172,14 +188,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
       ? {}
       : { WORKTREE_MAIN_DIR: "${containerWorkspaceFolder}/main" },
     postCreateSteps: [
-      // Create the worktree main dir here rather than in the Dockerfile: this
-      // runs after the bind mounts are layered onto the workspace root, so the
-      // directory is guaranteed visible, and it runs as remoteUser, so it ends
-      // up owned by the right user without a chown. Repeats the scripts' own
-      // fallback so an edited WORKTREE_MAIN_DIR in devcontainer.json is honored.
+      // Create and initialize the worktree main dir here rather than in the
+      // Dockerfile: this runs after the bind mounts are layered onto the
+      // workspace root, so the directory is guaranteed visible, and it runs as
+      // remoteUser, so it ends up owned by the right user without a chown.
+      // Repeats the scripts' own fallback so an edited WORKTREE_MAIN_DIR in
+      // devcontainer.json is honored.
       ...(minimalTools
         ? []
-        : [`mkdir -p "\${WORKTREE_MAIN_DIR:-\${WORKSPACE_DIR}/main}"`]),
+        : [
+            `MAIN_DIR="\${WORKTREE_MAIN_DIR:-\${WORKSPACE_DIR}/main}"
+mkdir -p "$MAIN_DIR"
+# Must precede init to have any effect on the initial branch name.
+git config --global init.defaultBranch main
+if [ ! -e "$MAIN_DIR/.git" ]; then
+  git -C "$MAIN_DIR" init -q
+  # Dev Containers normally copies the host ~/.gitconfig in, but not always
+  # (headless \`devcontainer up\`, or the feature turned off). Without an
+  # identity the commit below fails, and set -e would abort the rest of
+  # post-create — including the install.sh steps.
+  if ! git -C "$MAIN_DIR" var GIT_AUTHOR_IDENT >/dev/null 2>&1; then
+    git -C "$MAIN_DIR" config user.name "devcontainer"
+    git -C "$MAIN_DIR" config user.email "devcontainer@localhost"
+  fi
+  git -C "$MAIN_DIR" commit -q --allow-empty -m "initial commit"
+  # Redundant on git >= 2.28 given init.defaultBranch above; kept for older git,
+  # and guarded so it can't fail the script when the branch is already main.
+  if git -C "$MAIN_DIR" show-ref -q --verify refs/heads/master; then
+    git -C "$MAIN_DIR" branch -m master main
+  fi
+fi`,
+          ]),
       // User scope (shared volume = $CLAUDE_CONFIG_DIR): settings + statusline,
       // so the statusline works from any directory and persists across rebuilds.
       `if [ -x ${CONTAINER_TOOLS_DIR}/install.sh ]; then bash ${CONTAINER_TOOLS_DIR}/install.sh ${modeFlag} --dir "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; fi`,
@@ -319,6 +358,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${version}`,
         CLAUDE_CONFIG_DIR: "/home/node/.claude",
         ...tools.envVars,
       },
+      initializeCommands: tools.initializeCommands,
       postCreateSteps: tools.postCreateSteps,
       postStartSteps: [],
       features: {},
