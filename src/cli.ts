@@ -44,8 +44,17 @@ program
     "--timezone <tz>",
     "IANA timezone for the container (default: detected from the host)"
   )
+  .option(
+    "--minimal",
+    "install only the minimal claude-code-tools set (settings + statusline) instead of the full toolkit",
+    false
+  )
   .option("--dry-run", "show what would be generated without writing files", false)
-  .option("--force", "overwrite existing .devcontainer directory", false)
+  .option(
+    "--force",
+    "overwrite existing .devcontainer directory, and replace the project settings.local.json at post-create",
+    false
+  )
   .option("--no-interactive", "skip the wizard and use defaults")
   .action(async (options) => {
     const rootPath = resolve(options.path);
@@ -77,6 +86,8 @@ program
           await template.configure({
             interactive: options.interactive !== false,
             projectPath: rootPath,
+            minimalTools: options.minimal === true,
+            forceTools: options.force === true,
           })
         );
       }
@@ -87,7 +98,11 @@ program
       printScanSummary(scan, settings);
     } else if (options.interactive !== false) {
       // Interactive wizard
-      const wizardResult = await runWizard(scan, { timezone: timezoneOverride });
+      const wizardResult = await runWizard(scan, {
+        timezone: timezoneOverride,
+        minimalTools: options.minimal === true,
+        forceTools: options.force === true,
+      });
       scan.projectName = wizardResult.projectName;
       settings = { timezone: wizardResult.timezone };
 

@@ -102,6 +102,10 @@ async function promptTimezone(): Promise<string> {
 export interface WizardOptions {
   /** Set by --timezone; when present the timezone prompt is skipped. */
   timezone?: string;
+  /** Set by --minimal; passed through to template configuration. */
+  minimalTools?: boolean;
+  /** Set by --force; passed through to template configuration. */
+  forceTools?: boolean;
 }
 
 export async function runWizard(
@@ -186,7 +190,12 @@ export async function runWizard(
     const additions: TemplateAdditions[] = [];
     for (const template of selectedTemplates) {
       additions.push(
-        await template.configure({ interactive: true, projectPath: scan.rootPath })
+        await template.configure({
+          interactive: true,
+          projectPath: scan.rootPath,
+          minimalTools: options.minimalTools,
+          forceTools: options.forceTools,
+        })
       );
     }
     templateAdditions = mergeTemplateAdditions(additions);

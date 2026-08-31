@@ -40,7 +40,9 @@ const CONTAINER_TOOLS_DIR = "/opt/claude-code-tools";
 const DEFAULT_TOOLS_SIBLING = "../claude-code-tools";
 
 interface ToolsIntegration {
+  dockerfileSteps: string[];
   mounts: string[];
+  envVars: Record<string, string>;
   postCreateSteps: string[];
 }
 
@@ -50,12 +52,26 @@ interface ToolsIntegration {
  * container out of the box. The tools repo owns the install layout via its
  * own `install.sh`; devcontainer-init just mounts the checkout read-only and
  * invokes that installer at post-create time.
+ *
+ * We install the full toolkit (`--all`: agents/, commands/, hooks/ on top of
+ * the minimal set) unless --minimal was passed. install.sh's own default is
+ * minimal, so the mode flag is always explicit here rather than implied.
+ *
+ * --force propagates as install.sh's own --force, which replaces an existing
+ * settings.local.json instead of keeping it.
  */
 async function configureToolsIntegration(
   interactive: boolean,
-  projectPath: string
+  projectPath: string,
+  minimalTools: boolean,
+  forceTools: boolean
 ): Promise<ToolsIntegration> {
-  const empty: ToolsIntegration = { mounts: [], postCreateSteps: [] };
+  const empty: ToolsIntegration = {
+    dockerfileSteps: [],
+    mounts: [],
+    envVars: {},
+    postCreateSteps: [],
+  };
 
   // Explicit opt-in wins over filesystem probing. This matters when
   // devcontainer-init itself runs inside a container: the probe below sees the
@@ -117,18 +133,50 @@ async function configureToolsIntegration(
     ? hostPath
     : `\${localWorkspaceFolder}/${hostPath}`;
 
+  const modeFlag = minimalTools ? "--minimal" : "--all";
+  // --force only has meaning alongside --with-local: install.sh consults it
+  // solely when deciding whether to replace an existing settings.local.json.
+  // Adding it to the user-scope step would be a no-op that reads as one.
+  const localFlags = forceTools ? "--with-local --force" : "--with-local";
+
   return {
+    dockerfileSteps: [
+      `
+######################
+# claude-code-tools runtime deps
+######################
+
+# The toolkit's /prd command set shells out to python3 for the topological sort
+# and wave splitting in prd-plan.sh and prd-unblock-compile.sh. Not present on
+# debian:*-slim. Scoped to the tools integration rather than the base package
+# list so containers generated without the checkout stay slim.
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    python3 \\
+  && apt-get clean && rm -rf /var/lib/apt/lists/*`,
+    ],
     mounts: [
       `source=${mountSource},target=${CONTAINER_TOOLS_DIR},type=bind,readonly`,
       // Surface project-scoped config as a real .claude/ at the workspace root.
       "source=${localWorkspaceFolder}/.claude,target=${containerWorkspaceFolder}/.claude,type=bind,consistency=cached",
     ],
+    // Only the full toolkit ships the worktree scripts that read this. Their
+    // own default is "${WORKTREE_MAIN_DIR:-${WORKSPACE_DIR}/main}", so this
+    // sets the same value explicitly — it makes the location visible and
+    // editable in devcontainer.json rather than buried in a shell default.
+    //
+    // Uses ${containerWorkspaceFolder} rather than ${WORKSPACE_DIR}: remoteEnv
+    // values can't reference another remoteEnv key, and WORKSPACE_DIR is only
+    // a Dockerfile ARG, so it isn't in containerEnv either. Both resolve to
+    // /workspaces/<project>.
+    envVars: minimalTools
+      ? {}
+      : { WORKTREE_MAIN_DIR: "${containerWorkspaceFolder}/main" },
     postCreateSteps: [
       // User scope (shared volume = $CLAUDE_CONFIG_DIR): settings + statusline,
       // so the statusline works from any directory and persists across rebuilds.
-      `if [ -x ${CONTAINER_TOOLS_DIR}/install.sh ]; then bash ${CONTAINER_TOOLS_DIR}/install.sh --dir "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; fi`,
+      `if [ -x ${CONTAINER_TOOLS_DIR}/install.sh ]; then bash ${CONTAINER_TOOLS_DIR}/install.sh ${modeFlag} --dir "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"; fi`,
       // Project scope (workspace .claude/): same, plus seed settings.local.json.
-      `if [ -x ${CONTAINER_TOOLS_DIR}/install.sh ]; then bash ${CONTAINER_TOOLS_DIR}/install.sh --dir "\${WORKSPACE_DIR}/.claude" --with-local; fi`,
+      `if [ -x ${CONTAINER_TOOLS_DIR}/install.sh ]; then bash ${CONTAINER_TOOLS_DIR}/install.sh ${modeFlag} --dir "\${WORKSPACE_DIR}/.claude" ${localFlags}; fi`,
     ],
   };
 }
@@ -140,6 +188,8 @@ export const claudeCodeTemplate: Template = {
   async configure({
     interactive,
     projectPath,
+    minimalTools = false,
+    forceTools = false,
   }: TemplateConfigureOptions): Promise<TemplateAdditions> {
     console.log(chalk.dim("\nFetching Claude Code versions from npm..."));
     const distTags = fetchDistTags();
@@ -217,13 +267,33 @@ export const claudeCodeTemplate: Template = {
 
     console.log(chalk.green(`  Using Claude Code ${version}\n`));
 
-    const tools = await configureToolsIntegration(interactive, projectPath);
+    const tools = await configureToolsIntegration(
+      interactive,
+      projectPath,
+      minimalTools,
+      forceTools
+    );
     if (tools.mounts.length > 0) {
-      console.log(chalk.green("  Wiring in claude-code-tools install step\n"));
+      console.log(
+        chalk.green(
+          `  Wiring in claude-code-tools install step (${minimalTools ? "minimal: settings + statusline" : "full toolkit: + agents, commands, hooks"})`
+        )
+      );
+      if (forceTools) {
+        console.log(
+          chalk.yellow(
+            "  --force: post-create will replace the project settings.local.json on every container create"
+          )
+        );
+      }
+      console.log();
     }
 
     return {
       dockerfileSteps: [
+        // Tools deps first: they apt-install as root, and the block below
+        // switches to USER ${USERNAME} for the rest of the Dockerfile.
+        ...tools.dockerfileSteps,
         `
 ######################
 # Claude Code CLI
@@ -239,6 +309,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${version}`,
       extensions: ["Anthropic.claude-code"],
       envVars: {
         CLAUDE_CONFIG_DIR: "/home/node/.claude",
+        ...tools.envVars,
       },
       postCreateSteps: tools.postCreateSteps,
       postStartSteps: [],

@@ -56,8 +56,11 @@ Options:
   -n, --name <name>         Override the project name
   -t, --template <names...> Apply templates (e.g., --template claude-code)
   --timezone <tz>           IANA timezone for the container (default: detected from the host)
+  --minimal                 Install only the minimal claude-code-tools set (settings + statusline)
+                            instead of the full toolkit
   --dry-run                 Show what would be generated without writing files
-  --force                   Overwrite existing .devcontainer directory
+  --force                   Overwrite existing .devcontainer directory, and replace the project
+                            settings.local.json at post-create
   --no-interactive          Skip the wizard and use defaults
   -V, --version             Output the version number
   -h, --help                Display help
@@ -141,10 +144,22 @@ The `claude-code` template can wire in a local [claude-code-tools](https://githu
 When enabled, the template adds:
 
 - A **read-only bind mount** of your host checkout at `/opt/claude-code-tools`.
+- **`python3`** in the image — the toolkit's `/prd` command set shells out to it. Only added when the checkout is wired in, so plain containers stay slim.
+- A **`WORKTREE_MAIN_DIR` remoteEnv** entry, set to `${containerWorkspaceFolder}/main` — the location the toolkit's worktree scripts treat as the main checkout. Full toolkit only; `--minimal` doesn't ship those scripts. The scripts already default to the same path (`${WORKTREE_MAIN_DIR:-${WORKSPACE_DIR}/main}`), so this changes no behavior — it makes the location visible and editable in `devcontainer.json` instead of buried in a shell default.
 - A **`.claude/` bind mount** at the workspace root, so project-scoped config is a real folder Claude Code picks up when run from the workspace.
 - Two **post-create steps** that run the tools repo's own `install.sh`:
-  - into `$CLAUDE_CONFIG_DIR` (the shared `claude-code-home` volume) — `settings.json` + statusline, so the statusline resolves from any directory and persists across rebuilds;
-  - into `$WORKSPACE_DIR/.claude` (with `--with-local`) — same, plus creating a fresh, empty `settings.local.json` when none exists. That file is never copied from the checkout, so personal overrides can't leak into a new workspace.
+  - into `$CLAUDE_CONFIG_DIR` (the shared `claude-code-home` volume) — so the statusline resolves from any directory and persists across rebuilds;
+  - into `$WORKSPACE_DIR/.claude` (with `--with-local`) — same, plus seeding `settings.local.json` from the checkout's copy when none exists.
+
+Passing `--force` adds `install.sh --force` to that second step, so an existing `settings.local.json` is **replaced** with the checkout's copy instead of preserved. Note that this is baked into `post-create.sh`, which runs on every container *create* — including rebuilds — so a `--force`-generated setup re-seeds the project's `settings.local.json` from the checkout each time you rebuild, discarding local edits. Regenerate without `--force` once you're past the initial setup. The user-scope step doesn't pass `--force`, since `install.sh` only consults it alongside `--with-local`.
+
+This behavior requires the `write_local` version of `install.sh` in `claude-code-tools`; older copies write an empty scaffold instead.
+
+Both steps install the **full toolkit** by default (`--all`: `settings.json` + statusline, plus `agents/`, `commands/`, and `hooks/`). Pass `--minimal` to install only `settings.json` + statusline:
+
+```bash
+devcontainer-init --template claude-code --minimal
+```
 
 The install layout lives in `claude-code-tools` (its `install.sh` owns it); this template only mounts the checkout and invokes it. In the **interactive wizard** you're prompted for the checkout path (default: sibling `../claude-code-tools`). In **non-interactive** runs the integration is only added when a sibling `../claude-code-tools` exists, so scripted generation never emits a mount pointing at a missing folder.
 
