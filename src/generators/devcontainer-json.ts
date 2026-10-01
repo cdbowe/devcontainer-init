@@ -61,9 +61,13 @@ export function generateDevcontainerJson(
   const dedupedMounts = dedupeByTarget(mounts);
 
   // Host-side setup, joined into the single string devcontainer.json allows.
+  const initializeCommands = [...BASE_INITIALIZE_COMMANDS];
+  if (templateAdditions) {
+    initializeCommands.push(...templateAdditions.initializeCommands);
+  }
   const initializeCommand =
-    templateAdditions && templateAdditions.initializeCommands.length > 0
-      ? templateAdditions.initializeCommands.join(" && ")
+    initializeCommands.length > 0
+      ? initializeCommands.join(" && ")
       : undefined;
 
   const remoteEnv: Record<string, string> = {
@@ -107,6 +111,18 @@ export function generateDevcontainerJson(
   return JSON.stringify(config, null, 2) + "\n";
 }
 
+/**
+ * Scratch/handoff folder every generated container gets, bound to a host folder
+ * of the same name so its contents survive rebuilds and are reachable from the
+ * host. Paired with BASE_INITIALIZE_COMMANDS below: `docker run --mount
+ * type=bind` errors on a missing source instead of creating it.
+ */
+const CLAUDE_FILES_DIR = "claude_files";
+
+const BASE_INITIALIZE_COMMANDS = [
+  `mkdir -p "\${localWorkspaceFolder}/${CLAUDE_FILES_DIR}"`,
+];
+
 function dedupeByTarget(mounts: string[]): string[] {
   const seen = new Set<string>();
   return mounts.filter((mount) => {
@@ -128,6 +144,9 @@ function buildMountEntries(scan: ScanResult): string[] {
   );
   mounts.push(
     "source=${localWorkspaceFolder}/.devcontainer,target=${containerWorkspaceFolder}/.devcontainer,type=bind,consistency=cached"
+  );
+  mounts.push(
+    `source=\${localWorkspaceFolder}/${CLAUDE_FILES_DIR},target=\${containerWorkspaceFolder}/${CLAUDE_FILES_DIR},type=bind,consistency=cached`
   );
 
   for (const entry of scan.rootEntries) {

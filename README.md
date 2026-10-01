@@ -195,6 +195,8 @@ The default VS Code workspace mount is disabled (`"workspaceMount": ""`). Instea
 
 Directories in the exclude list (`node_modules`, `.git`, `bin`, `obj`, etc.) are automatically omitted from mounts.
 
+Every generated config also gets a **`claude_files/` bind mount** at the workspace root (`${localWorkspaceFolder}/claude_files` → `${containerWorkspaceFolder}/claude_files`), whether or not the folder already exists on the host. A base **`initializeCommand`** (`mkdir -p`) creates the host folder first, since `docker run --mount type=bind` fails on a missing source rather than creating it, and `initializeCommand` is the only hook that runs on the host before container creation.
+
 ### Docker-in-Docker
 
 If `Dockerfile`, `docker-compose.yml`, or `compose.yaml` is detected in your project, the `docker-outside-of-docker` devcontainer feature is automatically included.
