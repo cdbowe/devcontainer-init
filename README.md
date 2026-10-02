@@ -40,7 +40,7 @@ npm run dev -- --path /path/to/your/project
 | Node.js | `package.json` | nodesource | `engines.node` in package.json |
 | Python | `requirements.txt`, `pyproject.toml`, `setup.py`, `Pipfile` | python3 + pip | — |
 | Rust | `Cargo.toml` | rustup | — |
-| Go | `go.mod` | golang | `go` directive in go.mod |
+| Go (Golang) | `go.mod` | go.dev tarball (multi-arch) | `go` directive in go.mod |
 | Ruby | `Gemfile` | ruby-full | — |
 | Java | `pom.xml`, `build.gradle`, `build.gradle.kts` | openjdk-21 | — |
 

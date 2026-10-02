@@ -53,16 +53,28 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/home/\${USERNAME}/.cargo/bin:\${PATH}"`;
 
     case "go": {
-      const goVer = version ?? "1.22";
+      // Go's download URLs always carry a patch number: `go 1.24` in go.mod
+      // means the 1.24.0 release.
+      const goVer = version ?? "1.27";
+      const release = /^\d+\.\d+$/.test(goVer) ? `${goVer}.0` : goVer;
       return `
 ######################
-# Go ${goVer}
+# Go ${release}
 ######################
 
-RUN wget -q https://go.dev/dl/go${goVer}.0.linux-amd64.tar.gz -O /tmp/go.tar.gz \\
+# dpkg's amd64/arm64 match Go's own naming, so this works on Intel and ARM
+# hosts alike.
+RUN GO_ARCH="$(dpkg --print-architecture)" \\
+  && wget -q "https://go.dev/dl/go${release}.linux-\${GO_ARCH}.tar.gz" -O /tmp/go.tar.gz \\
   && tar -C /usr/local -xzf /tmp/go.tar.gz \\
   && rm /tmp/go.tar.gz
-ENV PATH="/usr/local/go/bin:\${PATH}"`;
+
+ENV GOPATH=/go
+ENV PATH="/usr/local/go/bin:/go/bin:\${PATH}"
+
+# 1777 so the non-root user can write here: it is created further down, so it
+# cannot own these yet.
+RUN mkdir -p /go/bin /go/pkg && chmod -R 1777 /go`;
     }
 
     case "ruby":

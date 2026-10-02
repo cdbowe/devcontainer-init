@@ -71,6 +71,9 @@ async function tryReadJson(filePath: string): Promise<Record<string, unknown> | 
   }
 }
 
+/** Used when go.mod declares no version. */
+const GO_DEFAULT_VERSION = "1.27";
+
 const detectors: StackDetector[] = [
   {
     name: "dotnet",
@@ -177,10 +180,12 @@ const detectors: StackDetector[] = [
       const markers = await findMarkerFiles(rootPath, ["go.mod"]);
       if (markers.length === 0) return null;
 
-      let version = "1.22";
+      let version = GO_DEFAULT_VERSION;
       try {
         const content = await readFile(markers[0], "utf-8");
-        const match = content.match(/^go\s+(\d+\.\d+)/m);
+        // Keep the patch when go.mod pins one: installing 1.24.0 against a
+        // `go 1.24.5` directive fails the build outright.
+        const match = content.match(/^go\s+(\d+\.\d+(?:\.\d+)?)/m);
         if (match) version = match[1];
       } catch { /* skip */ }
 
@@ -285,13 +290,13 @@ export const stackChoices: StackChoice[] = [
   },
   {
     name: "go",
-    label: "Go",
+    label: "Go (Golang)",
     defaultStack: {
       name: "go",
-      sdk: "go:1.22",
-      version: "1.22",
+      sdk: `go:${GO_DEFAULT_VERSION}`,
+      version: GO_DEFAULT_VERSION,
       extensions: ["golang.go"],
-      postCreateSteps: [],
+      postCreateSteps: ["go mod download"],
     },
   },
   {
