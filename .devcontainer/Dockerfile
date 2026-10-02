@@ -71,4 +71,5 @@ WORKDIR ${WORKSPACE_DIR}
 ######################
 
 USER ${USERNAME}
-RUN curl -fsSL https://claude.ai/install.sh | bash -s -- 2.1.219
+RUN curl -fsSL https://claude.ai/install.sh | bash -s -- 2.1.285
+# 2.1.219
