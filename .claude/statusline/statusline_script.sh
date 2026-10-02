@@ -336,7 +336,7 @@ get_cost_element() {
 # Build status line from individual elements (multiline for readability, output as single line)
 
 # Debug: Output the entire JSON payload
-# echo "$JSON_INPUT" > "$WORKSPACE_DIR/.claude/statusline_data.json"
+echo "$JSON_INPUT" > "$WORKSPACE_DIR/.claude/statusline/statusline_data.json"
 
 echo -e "$(get_model_element) | $(get_context_element)"
 # Debug: Show debug display mode

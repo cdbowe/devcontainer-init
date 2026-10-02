@@ -1,5 +1,4 @@
-statusline/usage-data-log.txt
-statusline/statusline_data.json
-settings.local.json
 hooks-log.txt
 skill-log.txt
+statusline/usage-data-log.txt
+statusline/statusline_data.json
