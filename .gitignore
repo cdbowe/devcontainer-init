@@ -3,3 +3,8 @@ dist/
 *.tsbuildinfo
 .DS_Store
 claude_files/
+
+# devcontainer-init
+.claude/settings.local.json
+.claude/worktrees/
+.devcontainer/.env

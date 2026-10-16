@@ -10,12 +10,16 @@ ARG USERNAME=node
 ARG USER_UID=1000
 ARG USER_GID=${USER_UID}
 ARG WORKSPACE_DIR=/workspaces/devcontainer-init
+# IANA timezone; override via build.args in devcontainer.json.
+ARG TZ=America/New_York
+# Build-only: keeps tzdata from prompting during the package install below.
+ARG DEBIAN_FRONTEND=noninteractive
 
 ######################
 # Environment
 ######################
 
-ENV TZ="America/New_York"
+ENV TZ=${TZ}
 ENV SHELL=/bin/bash
 ENV HOME="/home/${USERNAME}"
 ENV DEVCONTAINER=true
@@ -40,6 +44,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   unzip \
   bash \
   bash-completion \
+  tzdata \
+  && ln -snf /usr/share/zoneinfo/${TZ} /etc/localtime \
+  && echo "${TZ}" > /etc/timezone \
+  && dpkg-reconfigure -f noninteractive tzdata \
   && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ######################
@@ -72,4 +80,3 @@ WORKDIR ${WORKSPACE_DIR}
 
 USER ${USERNAME}
 RUN curl -fsSL https://claude.ai/install.sh | bash -s -- 2.1.285
-# 2.1.219
