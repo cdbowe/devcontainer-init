@@ -36,7 +36,7 @@ program
     "Scan a codebase and generate a .devcontainer setup with the right SDKs and bind mounts"
   )
   .version("0.1.0")
-  .option("-p, --path <dir>", "path to the project root", ".")
+  .argument("[path]", "path to the project root", ".")
   .option("-n, --name <name>", "override the project name")
   .option(
     "-t, --template <names...>",
@@ -72,8 +72,8 @@ program
     false
   )
   .option("--no-interactive", "skip the wizard and use defaults")
-  .action(async (options) => {
-    const rootPath = resolve(options.path);
+  .action(async (path: string, options) => {
+    const rootPath = resolve(path);
     const scan = await scanProject(rootPath);
 
     if (options.name) {

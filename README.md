@@ -14,7 +14,7 @@ Or clone and run directly:
 git clone https://github.com/cdbowe/devcontainer-init.git
 cd devcontainer-init
 npm install
-npm run dev -- --path /path/to/your/project
+npm run dev -- /path/to/your/project
 ```
 
 ## What It Does
@@ -50,10 +50,12 @@ Multiple stacks in the same project are supported (e.g., .NET backend + Node.js 
 ## CLI Options
 
 ```
-Usage: devcontainer-init [options]
+Usage: devcontainer-init [options] [path]
+
+Arguments:
+  path                      Path to the project root (default: current directory)
 
 Options:
-  -p, --path <dir>          Path to the project root (default: ".")
   -n, --name <name>         Override the project name
   -t, --template <names...> Apply templates (e.g., --template claude-code)
   --timezone <tz>           IANA timezone for the container (default: detected from the host)
