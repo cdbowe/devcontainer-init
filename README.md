@@ -146,7 +146,7 @@ When enabled, the template adds:
 - A **read-only bind mount** of your host checkout at `/opt/claude-code-tools`.
 - **`python3`** in the image — the toolkit's `/prd` command set shells out to it. Only added when the checkout is wired in, so plain containers stay slim.
 - A **`WORKTREE_MAIN_DIR` remoteEnv** entry, set to `${containerWorkspaceFolder}/main` — the location the toolkit's worktree scripts treat as the main checkout. Full toolkit only; `--minimal` doesn't ship those scripts. The scripts already default to the same path (`${WORKTREE_MAIN_DIR:-${WORKSPACE_DIR}/main}`), so this changes no behavior — it makes the location visible and editable in `devcontainer.json` instead of buried in a shell default.
-- A **bind mount of `main/`** (`${localWorkspaceFolder}/main` → `${containerWorkspaceFolder}/main`), so the worktree main checkout lives on the host and survives container rebuilds, plus an **`initializeCommand`** that creates the host folder first. That ordering matters: `docker run --mount type=bind` fails on a missing source rather than creating it, and `initializeCommand` is the only hook that runs on the host before container creation.
+- A **bind mount of `main/`** (`${localWorkspaceFolder}/main` → `${containerWorkspaceFolder}/main`), so the worktree main checkout lives on the host and survives container rebuilds. The folder is declared as a `hostDir`, so it's created on the host before the mount is resolved — see [Bind Mounts](#bind-mounts).
 - A **post-create step that creates and initializes that directory**: `mkdir -p`, then `git init` with an empty `initial commit` on `main`. It runs after the bind mounts are layered onto the workspace root and as `remoteUser`, so the directory is both visible and correctly owned. Editing `WORKTREE_MAIN_DIR` in `devcontainer.json` moves what gets created. The whole block is guarded on `$MAIN_DIR/.git` not existing, so rebuilds don't stack up extra commits.
 - A **`.claude/` bind mount** at the workspace root, so project-scoped config is a real folder Claude Code picks up when run from the workspace.
 - Two **post-create steps** that run the tools repo's own `install.sh`:
@@ -195,7 +195,16 @@ The default VS Code workspace mount is disabled (`"workspaceMount": ""`). Instea
 
 Directories in the exclude list (`node_modules`, `.git`, `bin`, `obj`, etc.) are automatically omitted from mounts.
 
-Every generated config also gets a **`claude_files/` bind mount** at the workspace root (`${localWorkspaceFolder}/claude_files` → `${containerWorkspaceFolder}/claude_files`), whether or not the folder already exists on the host. A base **`initializeCommand`** (`mkdir -p`) creates the host folder first, since `docker run --mount type=bind` fails on a missing source rather than creating it, and `initializeCommand` is the only hook that runs on the host before container creation.
+Every generated config also gets a **`claude_files/` bind mount** at the workspace root (`${localWorkspaceFolder}/claude_files` → `${containerWorkspaceFolder}/claude_files`), whether or not the folder already exists on the host.
+
+Bind-mount sources have to exist before the container is created — `docker run --mount type=bind` fails on a missing source rather than creating it. Host folders the generated config needs (`claude_files/`, plus `main/` from the `claude-code` template) are therefore created twice over:
+
+- **At generation time**, by `devcontainer-init` itself.
+- **At container-create time**, by the generated **`initializeCommand`** — the only hook that runs on the host before creation — which covers fresh clones and folders deleted later.
+
+`initializeCommand` runs in the host's own shell: `cmd.exe /c` on Windows, `sh -c` elsewhere. So it can't use `mkdir -p` (cmd.exe reads `-p` as another folder to create, then rejects the path). Instead each folder gets `(mkdir "<absolute>" || mkdir <relative> || cd .)`: the absolute form is right whatever the shell's cwd is, the relative retry covers cmd.exe rejecting the `/` the absolute path is joined with, and `cd .` is the only no-op that succeeds in both shells (`|| true` fails on cmd.exe, where `true` isn't a builtin). A side effect worth knowing: once the folders exist, every container create logs a harmless `already exists` / `File exists` line per folder. Suppressing it would need `2>/dev/null` or `2>nul`, and neither is portable.
+
+Templates declare these folders as `hostDirs` rather than writing their own `mkdir`.
 
 ### Docker-in-Docker
 

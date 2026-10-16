@@ -7,6 +7,7 @@ import { join } from "node:path";
 import chalk from "chalk";
 import { scanProject } from "./scanner.js";
 import {
+  collectHostDirs,
   generateDockerfile,
   generateDevcontainerJson,
   generatePostCreate,
@@ -173,6 +174,15 @@ program
       await writeFile(file.path, file.content, "utf-8");
       const rel = file.path.replace(rootPath + "/", "");
       console.log(chalk.green(`  Created ${rel}`));
+    }
+
+    // Bind-mount sources must exist before the container is created. The
+    // generated initializeCommand creates them too, for clones and for folders
+    // deleted later, but doing it here means the machine that generated the
+    // config never depends on that fallback.
+    for (const dir of collectHostDirs(templateAdditions)) {
+      await mkdir(join(rootPath, dir), { recursive: true });
+      console.log(chalk.green(`  Created ${dir}/`));
     }
 
     console.log(chalk.bold.green("\nDone! .devcontainer/ is ready."));

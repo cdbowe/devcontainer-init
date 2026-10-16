@@ -43,7 +43,7 @@ interface ToolsIntegration {
   dockerfileSteps: string[];
   mounts: string[];
   envVars: Record<string, string>;
-  initializeCommands: string[];
+  hostDirs: string[];
   postCreateSteps: string[];
 }
 
@@ -71,7 +71,7 @@ async function configureToolsIntegration(
     dockerfileSteps: [],
     mounts: [],
     envVars: {},
-    initializeCommands: [],
+    hostDirs: [],
     postCreateSteps: [],
   };
 
@@ -169,12 +169,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
             "source=${localWorkspaceFolder}/main,target=${containerWorkspaceFolder}/main,type=bind,consistency=cached",
           ]),
     ],
-    // Runs on the host before the container is created. `docker run --mount
+    // Created on the host before the container is created. `docker run --mount
     // type=bind` errors on a missing source rather than creating it, so
     // without this the main/ mount above breaks startup on a fresh clone.
-    initializeCommands: minimalTools
-      ? []
-      : ['mkdir -p "${localWorkspaceFolder}/main"'],
+    hostDirs: minimalTools ? [] : ["main"],
     // Only the full toolkit ships the worktree scripts that read this. Their
     // own default is "${WORKTREE_MAIN_DIR:-${WORKSPACE_DIR}/main}", so this
     // sets the same value explicitly — it makes the location visible and
@@ -358,7 +356,8 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${version}`,
         CLAUDE_CONFIG_DIR: "/home/node/.claude",
         ...tools.envVars,
       },
-      initializeCommands: tools.initializeCommands,
+      hostDirs: tools.hostDirs,
+      initializeCommands: [],
       postCreateSteps: tools.postCreateSteps,
       postStartSteps: [],
       features: {},

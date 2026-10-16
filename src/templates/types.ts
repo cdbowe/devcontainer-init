@@ -4,9 +4,17 @@ export interface TemplateAdditions {
   extensions: string[];
   envVars: Record<string, string>;
   /**
-   * Commands run on the HOST before the container is created. Needed for bind
-   * mounts whose source may not exist yet: `docker run --mount type=bind`
-   * fails outright on a missing source rather than creating it.
+   * Workspace-relative folders a template's bind mounts need on the HOST, e.g.
+   * `main`. `docker run --mount type=bind` fails outright on a missing source
+   * rather than creating it, so these are created at generation time and again
+   * by the generated initializeCommand. Prefer these over a mkdir in
+   * initializeCommands: the host shell is cmd.exe on Windows.
+   */
+  hostDirs: string[];
+  /**
+   * Other commands run on the HOST before the container is created. Must work
+   * in both `sh` and `cmd.exe` — see ensureHostDir in the devcontainer.json
+   * generator for what that rules out.
    */
   initializeCommands: string[];
   postCreateSteps: string[];
