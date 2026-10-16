@@ -27,9 +27,10 @@ npm run dev -- --path /path/to/your/project
 .devcontainer/
 ├── Dockerfile              # Debian base + detected SDK layers
 ├── devcontainer.json       # Workspace config, mounts, VS Code extensions
+├── .env.example            # Only with --github-mcp: PAT template
 └── scripts/
     ├── post-create.sh      # One-time setup (dependency install)
-    └── post-start.sh       # Per-session setup (git config)
+    └── post-start.sh       # Per-session setup (git config, MCP registration)
 ```
 
 ## Supported Stacks
@@ -60,6 +61,8 @@ Options:
                             individually, keeping .git on the host (the previous default)
   --minimal                 Install only the minimal claude-code-tools set (settings + statusline)
                             instead of the full toolkit (--isolated only)
+  --github-mcp              With the claude-code template: register GitHub's read-only MCP
+                            server at container start, PAT from .devcontainer/.env
   --dry-run                 Show what would be generated without writing files
   --force                   Overwrite existing .devcontainer directory, and replace the project
                             settings.local.json at post-create
@@ -136,9 +139,23 @@ Templates layer additional tooling on top of the base devcontainer. Available te
 
 | Template | What It Adds |
 |----------|-------------|
-| `claude-code` | Claude Code CLI (version picker), shared `claude-code-home` volume, VS Code extension, optional [claude-code-tools](https://github.com/cdbowe/claude-code-tools) install (`--isolated` only) |
+| `claude-code` | Claude Code CLI (version picker), shared `claude-code-home` volume, VS Code extension, optional read-only [GitHub MCP server](#github-mcp-server), optional [claude-code-tools](https://github.com/cdbowe/claude-code-tools) install (`--isolated` only) |
 
 Use `--template` to apply directly, or select from the wizard's template picker.
+
+### GitHub MCP Server
+
+The `claude-code` template can register GitHub's hosted MCP server with Claude Code, **read-only** and limited to the `pull_requests` and `repos` toolsets, so Claude can read real history and PR review comments without `gh` or `git push` being reachable. Opt in with `--github-mcp` or answer the wizard prompt.
+
+When enabled, the template adds:
+
+- **`.devcontainer/.env.example`** (committed) describing the PAT to create. Copy it to `.devcontainer/.env` and fill in `GITHUB_PAT=`. Preferred: a fine-grained PAT scoped to the one repo with Metadata, Contents and Pull requests read access.
+- **`.devcontainer/.env`** appended to the project `.gitignore`.
+- A **post-start step** that reads the PAT and runs `claude mcp add-json github -s local`. It runs on every container start, so rotating the PAT is "edit `.env`, restart". Without a PAT it prints a notice and skips; it never fails startup.
+
+Local scope matters: the `claude-code-home` volume is shared by every container generated with this template, and a user-scope entry would leak one repo's PAT into all of them.
+
+Note for Claude itself: a `Read(**/.env*)` deny rule in `settings.json` also blocks reading `.env.example`. That is intended; the generator writes the file, not Claude.
 
 ### claude-code-tools Integration (`--isolated` only)
 
@@ -200,7 +217,7 @@ When version-specific markers exist (like `TargetFramework` in a `.csproj` or `e
 | `initializeCommand` | None | Creates bind sources on the host |
 | New files after generation | Just appear | Need a new mount entry (or re-run with `--force`) |
 | Git identity / history | Host's, via the mounted repo and VS Code's forwarded `.gitconfig` | Container-local sandbox repo (claude-code template) |
-| `.gitignore` additions | `claude_files/`, `.claude/settings.local.json`, `.claude/worktrees/` (claude-code template) | None |
+| `.gitignore` additions | `claude_files/`, `.claude/settings.local.json`, `.claude/worktrees/` (claude-code template), `.devcontainer/.env` (`--github-mcp`) | Only `.devcontainer/.env` (`--github-mcp`) |
 
 **Bind mode** is the simple one: the container works on the same checkout the host does, so Claude Code reads real history, Claude Code's built-in worktrees (`.claude/worktrees/`) work, and there is no host-path plumbing to maintain. Guard against unwanted git writes with a project `settings.json` deny list rather than by hiding the repo.
 

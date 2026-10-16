@@ -5,6 +5,7 @@ import inquirer from "inquirer";
 import chalk from "chalk";
 import type { WorkspaceMode } from "../types.js";
 import type {
+  GeneratedFile,
   Template,
   TemplateAdditions,
   TemplateConfigureOptions,
@@ -259,6 +260,114 @@ fi`,
 }
 
 
+const ENV_FILE = ".devcontainer/.env";
+const ENV_EXAMPLE_FILE = ".devcontainer/.env.example";
+
+interface GithubMcpIntegration {
+  postStartSteps: string[];
+  files: GeneratedFile[];
+  gitignoreEntries: string[];
+}
+
+/**
+ * Optionally register GitHub's hosted MCP server with Claude Code, read-only
+ * and scoped to pull requests + repos, so Claude can read real history and PR
+ * review comments without `gh` or `git push` being reachable.
+ *
+ * The PAT is read from a gitignored `.devcontainer/.env` at every container
+ * start, so rotating it is "edit the file, restart". Registration is at local
+ * scope: the `claude-code-home` volume is shared across devcontainers, and a
+ * user-scope entry would leak one repo's PAT into every other container.
+ */
+async function configureGithubMcp(
+  interactive: boolean,
+  githubMcpFlag: boolean
+): Promise<GithubMcpIntegration> {
+  const empty: GithubMcpIntegration = {
+    postStartSteps: [],
+    files: [],
+    gitignoreEntries: [],
+  };
+
+  let enable = githubMcpFlag;
+  if (!enable && interactive) {
+    ({ enable } = await inquirer.prompt<{ enable: boolean }>([
+      {
+        type: "confirm",
+        name: "enable",
+        message:
+          "Register the GitHub MCP server (read-only) with Claude Code? Needs a PAT in .devcontainer/.env",
+        default: false,
+      },
+    ]));
+  }
+  if (!enable) return empty;
+
+  return {
+    postStartSteps: [GITHUB_MCP_POST_START_STEP],
+    files: [{ path: ENV_EXAMPLE_FILE, content: ENV_EXAMPLE_CONTENT }],
+    gitignoreEntries: [ENV_FILE],
+  };
+}
+
+const ENV_EXAMPLE_CONTENT = `# Copy to ${ENV_FILE} (gitignored). Read by post-start.sh to register the
+# read-only GitHub MCP server with Claude Code.
+#
+# Preferred: fine-grained PAT, resource owner = the repo's org/user, repository
+# access = this repo only.
+#   Permissions: Metadata Read | Contents Read | Pull requests Read
+# Fallback (org disallows fine-grained PATs): classic PAT, scope \`repo\` only
+# (+ \`read:org\` if org lookups fail). Short expiration. If the org uses SAML
+# SSO: token > Configure SSO > Authorize.
+GITHUB_PAT=
+`;
+
+// Runs from post-start.sh under `set -e`: every failure path is a warning,
+// never an abort, so a missing PAT can't take the rest of startup down.
+// Single-quoted bash strings: the tr argument strips CR (Windows editors),
+// both quote styles and spaces from the value.
+const GITHUB_MCP_POST_START_STEP = `# GitHub MCP server (read-only)
+register_github_mcp() {
+  local env_file="\${WORKSPACE_DIR}/${ENV_FILE}"
+  local pat=""
+
+  if [ -f "$env_file" ]; then
+    pat="$(grep -E '^GITHUB_PAT=' "$env_file" | tail -1 | cut -d= -f2- | tr -d '\\r"'"'"' ')"
+  fi
+  if [ -z "$pat" ]; then
+    echo "  GITHUB_PAT not set in $env_file (copy ${ENV_EXAMPLE_FILE}). Skipping GitHub MCP."
+    return 0
+  fi
+  if ! command -v claude >/dev/null 2>&1; then
+    echo "  claude CLI not on PATH. Skipping GitHub MCP."
+    return 0
+  fi
+
+  local config
+  config="$(jq -cn --arg pat "$pat" '{
+    type: "http",
+    url: "https://api.githubcopilot.com/mcp/",
+    headers: {
+      Authorization: ("Bearer " + $pat),
+      "X-MCP-Toolsets": "pull_requests,repos",
+      "X-MCP-Readonly": "true"
+    }
+  }')"
+
+  # Local scope keeps the server (and PAT) tied to this project path. Remove
+  # first so a rotated PAT replaces the old entry instead of erroring on it.
+  if (
+    cd "\${WORKSPACE_DIR}"
+    claude mcp remove github -s local >/dev/null 2>&1 || true
+    claude mcp add-json github -s local "$config" >/dev/null
+  ); then
+    echo "  GitHub MCP server registered (read-only: pull_requests, repos)."
+  else
+    echo "  WARNING: 'claude mcp add-json github' failed. Check the PAT in $env_file."
+  fi
+}
+register_github_mcp`;
+
 export const claudeCodeTemplate: Template = {
   name: "claude-code",
   description: "Claude Code CLI with shared credential volume",
@@ -269,6 +378,7 @@ export const claudeCodeTemplate: Template = {
     workspaceMode,
     minimalTools = false,
     forceTools = false,
+    githubMcp = false,
   }: TemplateConfigureOptions): Promise<TemplateAdditions> {
     console.log(chalk.dim("\nFetching Claude Code versions from npm..."));
     const distTags = fetchDistTags();
@@ -369,6 +479,15 @@ export const claudeCodeTemplate: Template = {
       console.log();
     }
 
+    const mcp = await configureGithubMcp(interactive, githubMcp);
+    if (mcp.postStartSteps.length > 0) {
+      console.log(
+        chalk.green(
+          `  Wiring in GitHub MCP registration (read-only; PAT from ${ENV_FILE})\n`
+        )
+      );
+    }
+
     return {
       dockerfileSteps: [
         // Tools deps first: they apt-install as root, and the block below
@@ -394,9 +513,10 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${version}`,
       hostDirs: tools.hostDirs,
       initializeCommands: [],
       postCreateSteps: tools.postCreateSteps,
-      postStartSteps: [],
+      postStartSteps: mcp.postStartSteps,
       features: {},
-      gitignoreEntries: tools.gitignoreEntries,
+      files: mcp.files,
+      gitignoreEntries: [...tools.gitignoreEntries, ...mcp.gitignoreEntries],
     };
   },
 };

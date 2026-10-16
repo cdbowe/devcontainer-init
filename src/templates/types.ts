@@ -1,5 +1,11 @@
 import type { WorkspaceMode } from "../types.js";
 
+/** A file a template wants written, relative to the project root. */
+export interface GeneratedFile {
+  path: string;
+  content: string;
+}
+
 export interface TemplateAdditions {
   dockerfileSteps: string[];
   mounts: string[];
@@ -23,6 +29,12 @@ export interface TemplateAdditions {
   postStartSteps: string[];
   features: Record<string, Record<string, unknown>>;
   /**
+   * Extra files to write alongside the four standard ones. Paths are relative
+   * to the project root; anything under `.devcontainer/` is covered by the
+   * same --force overwrite check as the rest of that folder.
+   */
+  files: GeneratedFile[];
+  /**
    * Lines to append to the project's root `.gitignore` (created if missing).
    * Lines already present are skipped.
    */
@@ -44,6 +56,11 @@ export interface TemplateConfigureOptions {
    * machine-local files it would otherwise preserve. Defaults to false.
    */
   forceTools?: boolean;
+  /**
+   * Set by --github-mcp. Templates that can register a GitHub MCP server
+   * should do so without prompting. Defaults to false; interactive runs ask.
+   */
+  githubMcp?: boolean;
 }
 
 export interface Template {

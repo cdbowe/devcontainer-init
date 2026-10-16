@@ -1,4 +1,4 @@
-import type { Template, TemplateAdditions } from "./types.js";
+import type { GeneratedFile, Template, TemplateAdditions } from "./types.js";
 import { claudeCodeTemplate } from "./claude-code.js";
 
 const templateRegistry = new Map<string, Template>();
@@ -28,6 +28,7 @@ export function mergeTemplateAdditions(
     postCreateSteps: [],
     postStartSteps: [],
     features: {},
+    files: [],
     gitignoreEntries: [],
   };
 
@@ -41,6 +42,7 @@ export function mergeTemplateAdditions(
     merged.postCreateSteps.push(...a.postCreateSteps);
     merged.postStartSteps.push(...a.postStartSteps);
     Object.assign(merged.features, a.features);
+    merged.files.push(...a.files);
     merged.gitignoreEntries.push(...a.gitignoreEntries);
   }
 
@@ -51,4 +53,4 @@ export function mergeTemplateAdditions(
 
 register(claudeCodeTemplate);
 
-export type { Template, TemplateAdditions };
+export type { GeneratedFile, Template, TemplateAdditions };

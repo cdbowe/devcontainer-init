@@ -109,6 +109,8 @@ export interface WizardOptions {
   minimalTools?: boolean;
   /** Set by --force; passed through to template configuration. */
   forceTools?: boolean;
+  /** Set by --github-mcp; passed through to template configuration. */
+  githubMcp?: boolean;
 }
 
 async function promptWorkspaceMode(): Promise<WorkspaceMode> {
@@ -222,6 +224,7 @@ export async function runWizard(
           workspaceMode,
           minimalTools: options.minimalTools,
           forceTools: options.forceTools,
+          githubMcp: options.githubMcp,
         })
       );
     }
@@ -245,6 +248,16 @@ export async function runWizard(
   if (templateAdditions && templateAdditions.postCreateSteps.length > 0) {
     console.log(
       `  Post-create steps: ${chalk.cyan(String(templateAdditions.postCreateSteps.length))}`
+    );
+  }
+  if (templateAdditions && templateAdditions.postStartSteps.length > 0) {
+    console.log(
+      `  Post-start steps: ${chalk.cyan(String(templateAdditions.postStartSteps.length))}`
+    );
+  }
+  if (templateAdditions && templateAdditions.files.length > 0) {
+    console.log(
+      `  Extra files: ${chalk.cyan(templateAdditions.files.map((f) => f.path).join(", "))}`
     );
   }
   if (workspaceMode === "isolated") {

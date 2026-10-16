@@ -3,7 +3,7 @@
 import { Command } from "commander";
 import { resolve } from "node:path";
 import { mkdir, writeFile, access, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import chalk from "chalk";
 import { scanProject } from "./scanner.js";
 import {
@@ -56,6 +56,11 @@ program
     "install only the minimal claude-code-tools set (settings + statusline) instead of the full toolkit",
     false
   )
+  .option(
+    "--github-mcp",
+    "with the claude-code template: register GitHub's read-only MCP server at container start, PAT from .devcontainer/.env",
+    false
+  )
   .option("--dry-run", "show what would be generated without writing files", false)
   .option(
     "--force",
@@ -101,6 +106,7 @@ program
             workspaceMode: settings.workspaceMode,
             minimalTools: options.minimal === true,
             forceTools: options.force === true,
+            githubMcp: options.githubMcp === true,
           })
         );
       }
@@ -116,6 +122,7 @@ program
         workspaceMode: workspaceModeOverride,
         minimalTools: options.minimal === true,
         forceTools: options.force === true,
+        githubMcp: options.githubMcp === true,
       });
       scan.projectName = wizardResult.projectName;
       settings = {
@@ -147,6 +154,7 @@ program
     );
     const postCreate = generatePostCreate(scan, templateAdditions);
     const postStart = generatePostStart(scan, templateAdditions);
+    const extraFiles = templateAdditions?.files ?? [];
     const gitignoreEntries = collectGitignoreEntries(settings, templateAdditions);
 
     if (options.dryRun) {
@@ -158,6 +166,10 @@ program
       console.log(postCreate);
       console.log(chalk.bold.cyan("=== .devcontainer/scripts/post-start.sh ===\n"));
       console.log(postStart);
+      for (const file of extraFiles) {
+        console.log(chalk.bold.cyan(`=== ${file.path} ===\n`));
+        console.log(file.content);
+      }
       if (gitignoreEntries.length > 0) {
         console.log(chalk.bold.cyan("=== .gitignore (appended) ===\n"));
         console.log(gitignoreEntries.join("\n") + "\n");
@@ -189,9 +201,11 @@ program
       { path: join(devcontainerDir, "devcontainer.json"), content: devcontainerJson },
       { path: join(scriptsDir, "post-create.sh"), content: postCreate },
       { path: join(scriptsDir, "post-start.sh"), content: postStart },
+      ...extraFiles.map((f) => ({ path: join(rootPath, f.path), content: f.content })),
     ];
 
     for (const file of files) {
+      await mkdir(dirname(file.path), { recursive: true });
       await writeFile(file.path, file.content, "utf-8");
       const rel = file.path.replace(rootPath + "/", "");
       console.log(chalk.green(`  Created ${rel}`));
