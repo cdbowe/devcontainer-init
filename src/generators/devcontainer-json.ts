@@ -1,10 +1,15 @@
+import { basename } from "node:path";
 import { DEFAULT_SETTINGS, type GenerationSettings, type ScanResult } from "../types.js";
 import type { TemplateAdditions } from "../templates/types.js";
 
 interface DevcontainerConfig {
   name: string;
   workspaceFolder: string;
-  workspaceMount: string;
+  /**
+   * Omitted in bind mode when the default target already matches
+   * workspaceFolder; "" in isolated mode to disable the default mount.
+   */
+  workspaceMount?: string;
   build: {
     dockerfile: string;
     args: Record<string, string>;
@@ -18,11 +23,13 @@ interface DevcontainerConfig {
   remoteEnv: Record<string, string>;
   remoteUser: string;
   mounts: string[];
-  /** Omitted from the JSON when no template contributed one. */
+  /** Omitted from the JSON when nothing contributed one. */
   initializeCommand?: string;
   postCreateCommand: string;
   postStartCommand: string;
 }
+
+const DOOD_FEATURE = "ghcr.io/devcontainers/features/docker-outside-of-docker:1";
 
 export function generateDevcontainerJson(
   scan: ScanResult,
@@ -38,7 +45,7 @@ export function generateDevcontainerJson(
 
   const features: Record<string, Record<string, unknown>> = {};
   if (scan.hasDocker) {
-    features["ghcr.io/devcontainers/features/docker-outside-of-docker:1"] = {
+    features[DOOD_FEATURE] = {
       moby: false,
       installDockerBuildx: false,
     };
@@ -51,7 +58,8 @@ export function generateDevcontainerJson(
     Object.assign(features, templateAdditions.features);
   }
 
-  const mounts = buildMountEntries(scan);
+  const usesDoodFeature = DOOD_FEATURE in features;
+  const mounts = buildMountEntries(scan, settings, usesDoodFeature);
   if (templateAdditions) {
     mounts.push(...templateAdditions.mounts);
   }
@@ -62,7 +70,7 @@ export function generateDevcontainerJson(
 
   // Host-side setup, joined into the single string devcontainer.json allows.
   const initializeCommands = [
-    ...collectHostDirs(templateAdditions).map(ensureHostDir),
+    ...collectHostDirs(settings, templateAdditions).map(ensureHostDir),
     ...(templateAdditions?.initializeCommands ?? []),
   ];
   const initializeCommand =
@@ -79,14 +87,16 @@ export function generateDevcontainerJson(
     Object.assign(remoteEnv, templateAdditions.envVars);
   }
 
+  const workspaceFolder = `/workspaces/${scan.projectName}`;
+
   const config: DevcontainerConfig = {
     name: scan.projectName,
-    workspaceFolder: `/workspaces/${scan.projectName}`,
-    workspaceMount: "",
+    workspaceFolder,
+    workspaceMount: resolveWorkspaceMount(scan, settings, workspaceFolder),
     build: {
       dockerfile: "Dockerfile",
       args: {
-        WORKSPACE_DIR: `/workspaces/${scan.projectName}`,
+        WORKSPACE_DIR: workspaceFolder,
         TZ: settings.timezone,
       },
     },
@@ -110,9 +120,26 @@ export function generateDevcontainerJson(
 }
 
 /**
- * Scratch/handoff folder every generated container gets, bound to a host folder
- * of the same name so its contents survive rebuilds and are reachable from the
- * host.
+ * Isolated mode disables the default mount outright. Bind mode leans on it:
+ * Dev Containers binds `${localWorkspaceFolder}` to
+ * `/workspaces/${localWorkspaceFolderBasename}` when `workspaceMount` is
+ * absent, which is exactly `workspaceFolder` unless --name changed the project
+ * name. In that case the mount is spelled out so the two still agree.
+ */
+function resolveWorkspaceMount(
+  scan: ScanResult,
+  settings: GenerationSettings,
+  workspaceFolder: string
+): string | undefined {
+  if (settings.workspaceMode === "isolated") return "";
+  if (scan.projectName === basename(scan.rootPath)) return undefined;
+  return `source=\${localWorkspaceFolder},target=${workspaceFolder},type=bind,consistency=cached`;
+}
+
+/**
+ * Scratch/handoff folder every generated container gets. In isolated mode it
+ * is bound to a host folder of the same name so its contents survive rebuilds;
+ * in bind mode it is simply a folder in the workspace.
  */
 export const CLAUDE_FILES_DIR = "claude_files";
 
@@ -121,13 +148,17 @@ export const CLAUDE_FILES_DIR = "claude_files";
  * is created: `docker run --mount type=bind` errors on a missing source instead
  * of creating it. The CLI creates these at generation time; ensureHostDir below
  * re-creates them at container-create time for clones and deleted folders.
+ *
+ * Only isolated mode binds `claude_files/` individually; in bind mode nothing
+ * depends on it existing, so it is left to templates (which contribute none in
+ * that mode today).
  */
 export function collectHostDirs(
+  settings: GenerationSettings,
   templateAdditions?: TemplateAdditions
 ): string[] {
-  return [
-    ...new Set([CLAUDE_FILES_DIR, ...(templateAdditions?.hostDirs ?? [])]),
-  ];
+  const base = settings.workspaceMode === "isolated" ? [CLAUDE_FILES_DIR] : [];
+  return [...new Set([...base, ...(templateAdditions?.hostDirs ?? [])])];
 }
 
 /**
@@ -163,12 +194,25 @@ function dedupeByTarget(mounts: string[]): string[] {
   });
 }
 
-function buildMountEntries(scan: ScanResult): string[] {
+function buildMountEntries(
+  scan: ScanResult,
+  settings: GenerationSettings,
+  usesDoodFeature: boolean
+): string[] {
   const mounts: string[] = [];
 
-  mounts.push(
-    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
-  );
+  // The docker-outside-of-docker feature binds the host socket itself (to
+  // /var/run/docker-host.sock, proxied to /var/run/docker.sock). A second bind
+  // on /var/run/docker.sock fights that proxy, so only add one without it.
+  if (!usesDoodFeature) {
+    mounts.push(
+      "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+    );
+  }
+
+  if (settings.workspaceMode === "bind") return mounts;
+
+  // Isolated mode: no workspace mount, so every root entry is bound by hand.
   mounts.push(
     "source=${localWorkspaceFolder}/.devcontainer,target=${containerWorkspaceFolder}/.devcontainer,type=bind,consistency=cached"
   );

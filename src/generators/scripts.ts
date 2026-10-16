@@ -60,7 +60,9 @@ echo "  WORKSPACE_DIR: \${WORKSPACE_DIR}"
 # Git Safe Directory
 ###########################################
 
-git config --global --add safe.directory "\${WORKSPACE_DIR}" 2>/dev/null || true
+if ! git config --global --get-all safe.directory 2>/dev/null | grep -qx "\${WORKSPACE_DIR}"; then
+  git config --global --add safe.directory "\${WORKSPACE_DIR}" 2>/dev/null || true
+fi
 
 ###########################################
 # Docker Socket
@@ -88,7 +90,7 @@ export function generatePostStart(
   templateAdditions?: TemplateAdditions
 ): string {
   const templateSteps = templateAdditions?.postStartSteps
-    .map((step) => `echo "Running: ${step}..."\n${step}`)
+    .map((step) => `echo "Running: ${stepLabel(step)}..."\n${step}`)
     .join("\n\n");
 
   return `#!/bin/bash
@@ -100,7 +102,9 @@ echo "Running post-start setup..."
 # Git Safe Directory
 ###########################################
 
-git config --global --add safe.directory "\${WORKSPACE_DIR}" 2>/dev/null || true
+if ! git config --global --get-all safe.directory 2>/dev/null | grep -qx "\${WORKSPACE_DIR}"; then
+  git config --global --add safe.directory "\${WORKSPACE_DIR}" 2>/dev/null || true
+fi
 ${templateSteps ? `\n###########################################\n# Template Setup\n###########################################\n\n${templateSteps}` : ""}
 
 echo "Post-start setup complete!"

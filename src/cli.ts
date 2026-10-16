@@ -2,11 +2,12 @@
 
 import { Command } from "commander";
 import { resolve } from "node:path";
-import { mkdir, writeFile, access } from "node:fs/promises";
+import { mkdir, writeFile, access, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import { scanProject } from "./scanner.js";
 import {
+  CLAUDE_FILES_DIR,
   collectHostDirs,
   generateDockerfile,
   generateDevcontainerJson,
@@ -18,14 +19,14 @@ import {
   mergeTemplateAdditions,
   type TemplateAdditions,
 } from "./templates/index.js";
-import { runWizard } from "./wizard.js";
+import { describeWorkspaceMode, runWizard } from "./wizard.js";
 import {
   describeTimezone,
   detectHostTimezone,
   formatTimezone,
   isValidTimezone,
 } from "./timezones.js";
-import type { GenerationSettings } from "./types.js";
+import type { GenerationSettings, WorkspaceMode } from "./types.js";
 
 const program = new Command();
 
@@ -44,6 +45,11 @@ program
   .option(
     "--timezone <tz>",
     "IANA timezone for the container (default: detected from the host)"
+  )
+  .option(
+    "--isolated",
+    "disable the default workspace mount and bind each root entry individually, keeping .git on the host (the previous default)",
+    false
   )
   .option(
     "--minimal",
@@ -68,8 +74,13 @@ program
     // An explicit --timezone wins everywhere; otherwise the wizard asks and
     // non-interactive runs fall back to whatever the host looks like.
     const timezoneOverride = resolveTimezoneOverride(options.timezone);
+    // --isolated is the only way to opt out of the default workspace mount
+    // from the CLI; the wizard asks when the flag is absent.
+    const workspaceModeOverride: WorkspaceMode | undefined =
+      options.isolated === true ? "isolated" : undefined;
     let settings: GenerationSettings = {
       timezone: timezoneOverride ?? detectHostTimezone().id,
+      workspaceMode: workspaceModeOverride ?? "bind",
     };
 
     let templateAdditions: TemplateAdditions | undefined;
@@ -87,6 +98,7 @@ program
           await template.configure({
             interactive: options.interactive !== false,
             projectPath: rootPath,
+            workspaceMode: settings.workspaceMode,
             minimalTools: options.minimal === true,
             forceTools: options.force === true,
           })
@@ -101,11 +113,15 @@ program
       // Interactive wizard
       const wizardResult = await runWizard(scan, {
         timezone: timezoneOverride,
+        workspaceMode: workspaceModeOverride,
         minimalTools: options.minimal === true,
         forceTools: options.force === true,
       });
       scan.projectName = wizardResult.projectName;
-      settings = { timezone: wizardResult.timezone };
+      settings = {
+        timezone: wizardResult.timezone,
+        workspaceMode: wizardResult.workspaceMode,
+      };
 
       if (!wizardResult.confirmed) {
         console.log(chalk.yellow("Aborted."));
@@ -131,6 +147,7 @@ program
     );
     const postCreate = generatePostCreate(scan, templateAdditions);
     const postStart = generatePostStart(scan, templateAdditions);
+    const gitignoreEntries = collectGitignoreEntries(settings, templateAdditions);
 
     if (options.dryRun) {
       console.log(chalk.bold.cyan("=== .devcontainer/Dockerfile ===\n"));
@@ -141,6 +158,10 @@ program
       console.log(postCreate);
       console.log(chalk.bold.cyan("=== .devcontainer/scripts/post-start.sh ===\n"));
       console.log(postStart);
+      if (gitignoreEntries.length > 0) {
+        console.log(chalk.bold.cyan("=== .gitignore (appended) ===\n"));
+        console.log(gitignoreEntries.join("\n") + "\n");
+      }
       return;
     }
 
@@ -179,10 +200,18 @@ program
     // Bind-mount sources must exist before the container is created. The
     // generated initializeCommand creates them too, for clones and for folders
     // deleted later, but doing it here means the machine that generated the
-    // config never depends on that fallback.
-    for (const dir of collectHostDirs(templateAdditions)) {
+    // config never depends on that fallback. The scratch folder is created in
+    // both modes; only isolated mode has a mount that depends on it.
+    for (const dir of new Set([CLAUDE_FILES_DIR, ...collectHostDirs(settings, templateAdditions)])) {
       await mkdir(join(rootPath, dir), { recursive: true });
       console.log(chalk.green(`  Created ${dir}/`));
+    }
+
+    if (gitignoreEntries.length > 0) {
+      const added = await appendGitignore(rootPath, gitignoreEntries);
+      if (added.length > 0) {
+        console.log(chalk.green(`  Updated .gitignore (+${added.join(", ")})`));
+      }
     }
 
     console.log(chalk.bold.green("\nDone! .devcontainer/ is ready."));
@@ -192,6 +221,47 @@ program
       )
     );
   });
+
+/**
+ * In bind mode the whole project folder — including anything this tool
+ * creates in it — is the real repo, so scratch and machine-local files have to
+ * be ignored explicitly. Isolated mode never commits from the container, so
+ * nothing is appended there unless a template asks for it.
+ */
+function collectGitignoreEntries(
+  settings: GenerationSettings,
+  templateAdditions?: TemplateAdditions
+): string[] {
+  const base = settings.workspaceMode === "bind" ? [`${CLAUDE_FILES_DIR}/`] : [];
+  return [...new Set([...base, ...(templateAdditions?.gitignoreEntries ?? [])])];
+}
+
+/**
+ * Appends missing entries under a marker comment, preserving the file's
+ * existing line endings (CRLF on a Windows checkout with autocrlf). Returns
+ * the entries that were actually added.
+ */
+async function appendGitignore(rootPath: string, entries: string[]): Promise<string[]> {
+  const path = join(rootPath, ".gitignore");
+  let existing = "";
+  try {
+    existing = await readFile(path, "utf-8");
+  } catch {
+    // no .gitignore yet
+  }
+
+  const eol = existing.includes("\r\n") ? "\r\n" : "\n";
+  const present = new Set(existing.split(/\r?\n/).map((line) => line.trim()));
+  const missing = entries.filter((entry) => !present.has(entry));
+  if (missing.length === 0) return [];
+
+  let out = existing;
+  if (out.length > 0 && !out.endsWith("\n")) out += eol;
+  if (out.length > 0) out += eol;
+  out += `# devcontainer-init${eol}${missing.join(eol)}${eol}`;
+  await writeFile(path, out, "utf-8");
+  return missing;
+}
 
 function resolveTimezoneOverride(value: string | undefined): string | undefined {
   if (!value) return undefined;
@@ -233,6 +303,7 @@ function printScanSummary(
   console.log(
     `Timezone: ${formatTimezone(describeTimezone(settings.timezone))}`
   );
+  console.log(`Workspace mount: ${describeWorkspaceMode(settings.workspaceMode)}`);
   if (scan.hasDocker) console.log(chalk.dim("Docker config detected — adding docker-outside-of-docker feature"));
   if (scan.hasGit) console.log(chalk.dim("Git repo detected"));
   console.log();

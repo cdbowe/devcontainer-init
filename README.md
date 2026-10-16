@@ -56,8 +56,10 @@ Options:
   -n, --name <name>         Override the project name
   -t, --template <names...> Apply templates (e.g., --template claude-code)
   --timezone <tz>           IANA timezone for the container (default: detected from the host)
+  --isolated                Disable the default workspace mount and bind each root entry
+                            individually, keeping .git on the host (the previous default)
   --minimal                 Install only the minimal claude-code-tools set (settings + statusline)
-                            instead of the full toolkit
+                            instead of the full toolkit (--isolated only)
   --dry-run                 Show what would be generated without writing files
   --force                   Overwrite existing .devcontainer directory, and replace the project
                             settings.local.json at post-create
@@ -72,9 +74,10 @@ By default, `devcontainer-init` runs an interactive wizard that:
 1. Shows detected stacks and lets you confirm
 2. Prompts for project name
 3. Prompts for the container timezone, preselecting the one detected from the host
-4. Lets you select templates to apply (e.g., Claude Code)
-5. Runs each selected template's own prompts (version pickers, integrations)
-6. Shows a summary and asks for confirmation before writing files
+4. Prompts for the workspace mount: bind the whole folder (default) or isolated — see [Workspace Mount](#workspace-mount)
+5. Lets you select templates to apply (e.g., Claude Code)
+6. Runs each selected template's own prompts (version pickers, integrations)
+7. Shows a summary and asks for confirmation before writing files
 
 Template prompts run *before* the final confirmation, so the summary reflects everything you chose and nothing is written until you confirm.
 
@@ -133,20 +136,20 @@ Templates layer additional tooling on top of the base devcontainer. Available te
 
 | Template | What It Adds |
 |----------|-------------|
-| `claude-code` | Claude Code CLI (version picker), shared `claude-code-home` volume, VS Code extension, optional [claude-code-tools](https://github.com/cdbowe/claude-code-tools) install |
+| `claude-code` | Claude Code CLI (version picker), shared `claude-code-home` volume, VS Code extension, optional [claude-code-tools](https://github.com/cdbowe/claude-code-tools) install (`--isolated` only) |
 
 Use `--template` to apply directly, or select from the wizard's template picker.
 
-### claude-code-tools Integration
+### claude-code-tools Integration (`--isolated` only)
 
-The `claude-code` template can wire in a local [claude-code-tools](https://github.com/cdbowe/claude-code-tools) checkout so your `settings.json`, `settings.local.json`, and statusline work in the new container out of the box.
+In **isolated** mode the `claude-code` template can wire in a local [claude-code-tools](https://github.com/cdbowe/claude-code-tools) checkout so your `settings.json`, `settings.local.json`, and statusline work in the new container out of the box. In the default **bind** mode this integration is skipped entirely: `.claude/` is plain committed repo content, `mounts` holds only named volumes, and the toolkit's worktree scripts assume the isolated `main/` layout anyway. Copy the components a repo needs into its `.claude/` instead.
 
 When enabled, the template adds:
 
 - A **read-only bind mount** of your host checkout at `/opt/claude-code-tools`.
 - **`python3`** in the image — the toolkit's `/prd` command set shells out to it. Only added when the checkout is wired in, so plain containers stay slim.
 - A **`WORKTREE_MAIN_DIR` remoteEnv** entry, set to `${containerWorkspaceFolder}/main` — the location the toolkit's worktree scripts treat as the main checkout. Full toolkit only; `--minimal` doesn't ship those scripts. The scripts already default to the same path (`${WORKTREE_MAIN_DIR:-${WORKSPACE_DIR}/main}`), so this changes no behavior — it makes the location visible and editable in `devcontainer.json` instead of buried in a shell default.
-- A **bind mount of `main/`** (`${localWorkspaceFolder}/main` → `${containerWorkspaceFolder}/main`), so the worktree main checkout lives on the host and survives container rebuilds. The folder is declared as a `hostDir`, so it's created on the host before the mount is resolved — see [Bind Mounts](#bind-mounts).
+- A **bind mount of `main/`** (`${localWorkspaceFolder}/main` → `${containerWorkspaceFolder}/main`), so the worktree main checkout lives on the host and survives container rebuilds. The folder is declared as a `hostDir`, so it's created on the host before the mount is resolved — see [Workspace Mount](#workspace-mount).
 - A **post-create step that creates and initializes that directory**: `mkdir -p`, then `git init` with an empty `initial commit` on `main`. It runs after the bind mounts are layered onto the workspace root and as `remoteUser`, so the directory is both visible and correctly owned. Editing `WORKTREE_MAIN_DIR` in `devcontainer.json` moves what gets created. The whole block is guarded on `$MAIN_DIR/.git` not existing, so rebuilds don't stack up extra commits.
 - A **`.claude/` bind mount** at the workspace root, so project-scoped config is a real folder Claude Code picks up when run from the workspace.
 - Two **post-create steps** that run the tools repo's own `install.sh`:
@@ -187,17 +190,25 @@ The scanner walks your project tree (up to 3 levels deep) looking for marker fil
 
 When version-specific markers exist (like `TargetFramework` in a `.csproj` or `engines.node` in `package.json`), those versions are used in the generated Dockerfile.
 
-### Bind Mounts
+### Workspace Mount
 
-The default VS Code workspace mount is disabled (`"workspaceMount": ""`). Instead, each root-level file and directory gets its own explicit bind mount entry in `devcontainer.json`, along with the `.devcontainer/` folder itself. This gives you precise control over what's shared between host and container, and makes it possible to add a `sync` command later that can detect drift between the two.
+| | `bind` (default) | `--isolated` |
+|---|---|---|
+| `workspaceMount` | Omitted: Dev Containers binds the whole host folder to `/workspaces/<name>` (spelled out only when `--name` differs from the folder name) | `""` |
+| What the container sees | Everything, including the real `.git` | Only explicitly mounted root entries; `.git` stays on the host |
+| `mounts` array | Named volumes only (e.g. `claude-code-home`) | `.devcontainer/`, `claude_files/`, one bind per root entry, plus template binds |
+| `initializeCommand` | None | Creates bind sources on the host |
+| New files after generation | Just appear | Need a new mount entry (or re-run with `--force`) |
+| Git identity / history | Host's, via the mounted repo and VS Code's forwarded `.gitconfig` | Container-local sandbox repo (claude-code template) |
+| `.gitignore` additions | `claude_files/`, `.claude/settings.local.json`, `.claude/worktrees/` (claude-code template) | None |
 
-**Only explicitly mounted files and folders will be visible inside the container.** If you add new files or directories to your project after running `devcontainer-init`, you'll need to add corresponding mount entries to `devcontainer.json` (or re-run the tool with `--force`) for them to appear in the container.
+**Bind mode** is the simple one: the container works on the same checkout the host does, so Claude Code reads real history, Claude Code's built-in worktrees (`.claude/worktrees/`) work, and there is no host-path plumbing to maintain. Guard against unwanted git writes with a project `settings.json` deny list rather than by hiding the repo.
 
-Directories in the exclude list (`node_modules`, `.git`, `bin`, `obj`, etc.) are automatically omitted from mounts.
+**Isolated mode** is the previous default, kept as an opt-in for the cases that need it. Each root-level file and directory gets its own explicit bind mount entry in `devcontainer.json`, along with the `.devcontainer/` folder itself. **Only explicitly mounted files and folders are visible inside the container.** Directories in the exclude list (`node_modules`, `.git`, `bin`, `obj`, etc.) are automatically omitted.
 
-Every generated config also gets a **`claude_files/` bind mount** at the workspace root (`${localWorkspaceFolder}/claude_files` → `${containerWorkspaceFolder}/claude_files`), whether or not the folder already exists on the host.
+Both modes create a **`claude_files/`** scratch/handoff folder at the project root. In isolated mode it is bound into the container individually; in bind mode it is just a gitignored folder in the workspace.
 
-Bind-mount sources have to exist before the container is created — `docker run --mount type=bind` fails on a missing source rather than creating it. Host folders the generated config needs (`claude_files/`, plus `main/` from the `claude-code` template) are therefore created twice over:
+In isolated mode, bind-mount sources have to exist before the container is created — `docker run --mount type=bind` fails on a missing source rather than creating it. Host folders the generated config needs (`claude_files/`, plus `main/` from the `claude-code` template) are therefore created twice over:
 
 - **At generation time**, by `devcontainer-init` itself.
 - **At container-create time**, by the generated **`initializeCommand`** — the only hook that runs on the host before creation — which covers fresh clones and folders deleted later.
@@ -210,9 +221,18 @@ Templates declare these folders as `hostDirs` rather than writing their own `mkd
 
 If `Dockerfile`, `docker-compose.yml`, or `compose.yaml` is detected in your project, the `docker-outside-of-docker` devcontainer feature is automatically included.
 
+### Gotchas on a Windows host (bind mode)
+
+| Issue | Fix |
+|-------|-----|
+| Every file shows modified inside the container after a rebuild | Host has `core.autocrlf=true`, container unset. In the container: `git config core.autocrlf true` (repo-level, shared with host) then `git update-index -q --refresh`. Don't set `false` |
+| `.sh` checked out with CRLF → `$'\r': command not found` | Add `*.sh text eol=lf` to `.gitattributes` |
+| Executable bit lost | `chmod` may be ineffective on the bind mount; the generated commands already use `bash <script>` |
+| Slow `git status` | Bind-mount I/O; the first run rehashes the whole index |
+
 ## Pairing with Claude Code
 
-This tool generates generic devcontainer setups, but it's designed to work well with [claude-code-devcontainer](https://github.com/cdbowe/claude-code-devcontainer) and [claude-code-tools](https://github.com/cdbowe/claude-code-tools). After generating your base devcontainer, you can layer in Claude Code components using the mount patterns from those repos.
+This tool generates generic devcontainer setups, but it's designed to work well with [claude-code-devcontainer](https://github.com/cdbowe/claude-code-devcontainer) and [claude-code-tools](https://github.com/cdbowe/claude-code-tools). In bind mode, commit the `.claude/` components a repo needs directly; in isolated mode, layer them in using the mount patterns from those repos.
 
 ## Roadmap
 

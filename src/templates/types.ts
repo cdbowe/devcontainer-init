@@ -1,3 +1,5 @@
+import type { WorkspaceMode } from "../types.js";
+
 export interface TemplateAdditions {
   dockerfileSteps: string[];
   mounts: string[];
@@ -20,12 +22,18 @@ export interface TemplateAdditions {
   postCreateSteps: string[];
   postStartSteps: string[];
   features: Record<string, Record<string, unknown>>;
+  /**
+   * Lines to append to the project's root `.gitignore` (created if missing).
+   * Lines already present are skipped.
+   */
+  gitignoreEntries: string[];
 }
 
 export interface TemplateConfigureOptions {
   interactive: boolean;
   /** Absolute path to the project root being scanned (host-side). */
   projectPath: string;
+  workspaceMode: WorkspaceMode;
   /**
    * Set by --minimal. Templates that install an external toolkit should install
    * only its minimal set. Defaults to false: full toolkit.

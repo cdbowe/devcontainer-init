@@ -3,7 +3,12 @@ import { existsSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import inquirer from "inquirer";
 import chalk from "chalk";
-import type { Template, TemplateAdditions, TemplateConfigureOptions } from "./types.js";
+import type { WorkspaceMode } from "../types.js";
+import type {
+  Template,
+  TemplateAdditions,
+  TemplateConfigureOptions,
+} from "./types.js";
 
 interface ClaudeCodeDistTags {
   stable: string;
@@ -45,6 +50,7 @@ interface ToolsIntegration {
   envVars: Record<string, string>;
   hostDirs: string[];
   postCreateSteps: string[];
+  gitignoreEntries: string[];
 }
 
 /**
@@ -60,10 +66,18 @@ interface ToolsIntegration {
  *
  * --force propagates as install.sh's own --force, which replaces an existing
  * settings.local.json instead of keeping it.
+ *
+ * Isolated mode only. It binds `.claude/` and a host-backed `main/` folder that
+ * post-create turns into a sandbox git repo — the toolkit's worktree scripts
+ * expect that layout. Bind mode gets nothing from here: `.claude/` and the real
+ * `.git` arrive with the workspace mount, the mounts array is reserved for
+ * named volumes, and Claude Code's built-in worktrees (`.claude/worktrees/`)
+ * replace the `main/` + `worktrees/` split.
  */
 async function configureToolsIntegration(
   interactive: boolean,
   projectPath: string,
+  workspaceMode: WorkspaceMode,
   minimalTools: boolean,
   forceTools: boolean
 ): Promise<ToolsIntegration> {
@@ -73,7 +87,20 @@ async function configureToolsIntegration(
     envVars: {},
     hostDirs: [],
     postCreateSteps: [],
+    gitignoreEntries: [],
   };
+
+  // Bind mode: the only mounts are named volumes, and `.claude/` is plain
+  // committed repo content — nothing is linked or installed from a host
+  // checkout. The toolkit's worktree scripts also assume the isolated layout.
+  if (workspaceMode === "bind") {
+    return {
+      ...empty,
+      // install.sh isn't run here, but Claude Code itself writes both of
+      // these into the real repo's .claude/; neither belongs in version control.
+      gitignoreEntries: [".claude/settings.local.json", ".claude/worktrees/"],
+    };
+  }
 
   // Explicit opt-in wins over filesystem probing. This matters when
   // devcontainer-init itself runs inside a container: the probe below sees the
@@ -135,6 +162,10 @@ async function configureToolsIntegration(
     ? hostPath
     : `\${localWorkspaceFolder}/${hostPath}`;
 
+  // The sandbox `main/` repo needs the full toolkit: --minimal doesn't ship
+  // the worktree scripts that use it.
+  const sandboxMain = !minimalTools;
+
   const modeFlag = minimalTools ? "--minimal" : "--all";
   // --force only has meaning alongside --with-local: install.sh consults it
   // solely when deciding whether to replace an existing settings.local.json.
@@ -163,16 +194,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
       // Back the worktree main checkout with a host folder, so the repo the
       // post-create step initializes survives container rebuilds and is
       // editable from the host. Paired with the initializeCommand below.
-      ...(minimalTools
-        ? []
-        : [
+      ...(sandboxMain
+        ? [
             "source=${localWorkspaceFolder}/main,target=${containerWorkspaceFolder}/main,type=bind,consistency=cached",
-          ]),
+          ]
+        : []),
     ],
     // Created on the host before the container is created. `docker run --mount
     // type=bind` errors on a missing source rather than creating it, so
     // without this the main/ mount above breaks startup on a fresh clone.
-    hostDirs: minimalTools ? [] : ["main"],
+    hostDirs: sandboxMain ? ["main"] : [],
     // Only the full toolkit ships the worktree scripts that read this. Their
     // own default is "${WORKTREE_MAIN_DIR:-${WORKSPACE_DIR}/main}", so this
     // sets the same value explicitly — it makes the location visible and
@@ -182,9 +213,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
     // values can't reference another remoteEnv key, and WORKSPACE_DIR is only
     // a Dockerfile ARG, so it isn't in containerEnv either. Both resolve to
     // /workspaces/<project>.
-    envVars: minimalTools
-      ? {}
-      : { WORKTREE_MAIN_DIR: "${containerWorkspaceFolder}/main" },
+    envVars: sandboxMain
+      ? { WORKTREE_MAIN_DIR: "${containerWorkspaceFolder}/main" }
+      : {},
+    gitignoreEntries: [],
     postCreateSteps: [
       // Create and initialize the worktree main dir here rather than in the
       // Dockerfile: this runs after the bind mounts are layered onto the
@@ -192,7 +224,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
       // remoteUser, so it ends up owned by the right user without a chown.
       // Repeats the scripts' own fallback so an edited WORKTREE_MAIN_DIR in
       // devcontainer.json is honored.
-      ...(minimalTools
+      ...(!sandboxMain
         ? []
         : [
             `MAIN_DIR="\${WORKTREE_MAIN_DIR:-\${WORKSPACE_DIR}/main}"
@@ -226,6 +258,7 @@ fi`,
   };
 }
 
+
 export const claudeCodeTemplate: Template = {
   name: "claude-code",
   description: "Claude Code CLI with shared credential volume",
@@ -233,6 +266,7 @@ export const claudeCodeTemplate: Template = {
   async configure({
     interactive,
     projectPath,
+    workspaceMode,
     minimalTools = false,
     forceTools = false,
   }: TemplateConfigureOptions): Promise<TemplateAdditions> {
@@ -315,6 +349,7 @@ export const claudeCodeTemplate: Template = {
     const tools = await configureToolsIntegration(
       interactive,
       projectPath,
+      workspaceMode,
       minimalTools,
       forceTools
     );
@@ -361,6 +396,7 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s -- ${version}`,
       postCreateSteps: tools.postCreateSteps,
       postStartSteps: [],
       features: {},
+      gitignoreEntries: tools.gitignoreEntries,
     };
   },
 };

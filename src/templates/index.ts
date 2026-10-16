@@ -28,6 +28,7 @@ export function mergeTemplateAdditions(
     postCreateSteps: [],
     postStartSteps: [],
     features: {},
+    gitignoreEntries: [],
   };
 
   for (const a of additions) {
@@ -40,6 +41,7 @@ export function mergeTemplateAdditions(
     merged.postCreateSteps.push(...a.postCreateSteps);
     merged.postStartSteps.push(...a.postStartSteps);
     Object.assign(merged.features, a.features);
+    merged.gitignoreEntries.push(...a.gitignoreEntries);
   }
 
   return merged;

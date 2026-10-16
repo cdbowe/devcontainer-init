@@ -1,6 +1,6 @@
 import inquirer from "inquirer";
 import chalk from "chalk";
-import type { DetectedStack, ScanResult } from "./types.js";
+import type { DetectedStack, ScanResult, WorkspaceMode } from "./types.js";
 import {
   listTemplates,
   mergeTemplateAdditions,
@@ -20,6 +20,7 @@ import {
 export interface WizardResult {
   projectName: string;
   timezone: string;
+  workspaceMode: WorkspaceMode;
   selectedStacks: DetectedStack[];
   templates: Template[];
   /** Configured additions for the selected templates, or undefined if none. */
@@ -102,10 +103,34 @@ async function promptTimezone(): Promise<string> {
 export interface WizardOptions {
   /** Set by --timezone; when present the timezone prompt is skipped. */
   timezone?: string;
+  /** Set by --isolated; when present the workspace-mode prompt is skipped. */
+  workspaceMode?: WorkspaceMode;
   /** Set by --minimal; passed through to template configuration. */
   minimalTools?: boolean;
   /** Set by --force; passed through to template configuration. */
   forceTools?: boolean;
+}
+
+async function promptWorkspaceMode(): Promise<WorkspaceMode> {
+  const { workspaceMode } = await inquirer.prompt<{ workspaceMode: WorkspaceMode }>([
+    {
+      type: "list",
+      name: "workspaceMode",
+      message: "Workspace mount:",
+      choices: [
+        {
+          name: "Bind the whole project folder, .git included (default)",
+          value: "bind",
+        },
+        {
+          name: "Isolated: per-file bind mounts, .git stays on the host (sandbox git in container)",
+          value: "isolated",
+        },
+      ],
+      default: "bind",
+    },
+  ]);
+  return workspaceMode;
 }
 
 export async function runWizard(
@@ -159,6 +184,7 @@ export async function runWizard(
   ]);
 
   const timezone = options.timezone ?? (await promptTimezone());
+  const workspaceMode = options.workspaceMode ?? (await promptWorkspaceMode());
 
   const availableTemplates = listTemplates();
   let selectedTemplates: Template[] = [];
@@ -193,6 +219,7 @@ export async function runWizard(
         await template.configure({
           interactive: true,
           projectPath: scan.rootPath,
+          workspaceMode,
           minimalTools: options.minimalTools,
           forceTools: options.forceTools,
         })
@@ -208,6 +235,7 @@ export async function runWizard(
   console.log(
     `  Timezone: ${chalk.cyan(formatTimezone(describeTimezone(timezone)))}`
   );
+  console.log(`  Workspace mount: ${chalk.cyan(describeWorkspaceMode(workspaceMode))}`);
   console.log(
     `  Stacks: ${allStacks.length > 0 ? allStacks.map((s) => s.name).join(", ") : "none (minimal Debian)"}`
   );
@@ -219,9 +247,9 @@ export async function runWizard(
       `  Post-create steps: ${chalk.cyan(String(templateAdditions.postCreateSteps.length))}`
     );
   }
-  console.log(
-    `  Root entries: ${scan.rootEntries.length} items`
-  );
+  if (workspaceMode === "isolated") {
+    console.log(`  Root entries: ${scan.rootEntries.length} items (one bind mount each)`);
+  }
   console.log();
 
   const { confirmed } = await inquirer.prompt<{ confirmed: boolean }>([
@@ -236,9 +264,16 @@ export async function runWizard(
   return {
     projectName,
     timezone,
+    workspaceMode,
     selectedStacks,
     templates: selectedTemplates,
     templateAdditions,
     confirmed,
   };
+}
+
+export function describeWorkspaceMode(mode: WorkspaceMode): string {
+  return mode === "bind"
+    ? "bind (whole project folder, .git included)"
+    : "isolated (per-file binds, sandbox git)";
 }
