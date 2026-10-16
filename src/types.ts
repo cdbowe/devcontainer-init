@@ -42,16 +42,32 @@ export interface GeneratorOptions {
  */
 export type WorkspaceMode = "bind" | "isolated";
 
+/**
+ * Which Dev Containers Docker feature to install, if any. Mutually exclusive:
+ * both features claim /var/run/docker.sock.
+ *
+ * - `none`: no docker CLI in the container.
+ * - `outside`: docker-outside-of-docker — docker CLI talking to the HOST
+ *   daemon over its socket. Containers it starts are siblings, visible on the
+ *   host; needs no privileged mode.
+ * - `inside`: docker-in-docker — a full daemon inside the container. Fully
+ *   isolated from the host's Docker, but runs privileged and keeps its own
+ *   image cache.
+ */
+export type DockerFeature = "none" | "outside" | "inside";
+
 /** Choices that shape the generated files but aren't discovered by scanning. */
 export interface GenerationSettings {
   /** IANA timezone id baked into the container, e.g. "America/New_York". */
   timezone: string;
   workspaceMode: WorkspaceMode;
+  dockerFeature: DockerFeature;
 }
 
 export const DEFAULT_SETTINGS: GenerationSettings = {
   timezone: "UTC",
   workspaceMode: "bind",
+  dockerFeature: "none",
 };
 
 export interface StackDetector {

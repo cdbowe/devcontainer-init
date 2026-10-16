@@ -65,15 +65,6 @@ if ! git config --global --get-all safe.directory 2>/dev/null | grep -qx "\${WOR
 fi
 
 ###########################################
-# Docker Socket
-###########################################
-
-if [ -S /var/run/docker.sock ]; then
-  sudo chgrp docker /var/run/docker.sock 2>/dev/null || true
-  sudo chmod g+rw /var/run/docker.sock 2>/dev/null || true
-fi
-
-###########################################
 # Project Dependencies
 ###########################################
 

@@ -1,6 +1,6 @@
 import inquirer from "inquirer";
 import chalk from "chalk";
-import type { DetectedStack, ScanResult, WorkspaceMode } from "./types.js";
+import type { DetectedStack, DockerFeature, ScanResult, WorkspaceMode } from "./types.js";
 import {
   listTemplates,
   mergeTemplateAdditions,
@@ -21,6 +21,7 @@ export interface WizardResult {
   projectName: string;
   timezone: string;
   workspaceMode: WorkspaceMode;
+  dockerFeature: DockerFeature;
   selectedStacks: DetectedStack[];
   templates: Template[];
   /** Configured additions for the selected templates, or undefined if none. */
@@ -105,6 +106,8 @@ export interface WizardOptions {
   timezone?: string;
   /** Set by --isolated; when present the workspace-mode prompt is skipped. */
   workspaceMode?: WorkspaceMode;
+  /** Set by --docker-feature; when present the Docker prompt is skipped. */
+  dockerFeature?: DockerFeature;
   /** Set by --minimal; passed through to template configuration. */
   minimalTools?: boolean;
   /** Set by --force; passed through to template configuration. */
@@ -133,6 +136,36 @@ async function promptWorkspaceMode(): Promise<WorkspaceMode> {
     },
   ]);
   return workspaceMode;
+}
+
+/**
+ * Preselects docker-outside-of-docker when the project itself ships a
+ * Dockerfile or compose file — the usual reason to want a docker CLI — but
+ * nothing is installed unless the user picks it.
+ */
+async function promptDockerFeature(hasDocker: boolean): Promise<DockerFeature> {
+  const { dockerFeature } = await inquirer.prompt<{ dockerFeature: DockerFeature }>([
+    {
+      type: "list",
+      name: "dockerFeature",
+      message: hasDocker
+        ? "Docker support (Dockerfile/compose detected in the project):"
+        : "Docker support:",
+      choices: [
+        { name: "None", value: "none" },
+        {
+          name: "docker-outside-of-docker — docker CLI against the host daemon (sibling containers)",
+          value: "outside",
+        },
+        {
+          name: "docker-in-docker — full daemon inside the container (privileged, isolated)",
+          value: "inside",
+        },
+      ],
+      default: hasDocker ? "outside" : "none",
+    },
+  ]);
+  return dockerFeature;
 }
 
 export async function runWizard(
@@ -187,6 +220,8 @@ export async function runWizard(
 
   const timezone = options.timezone ?? (await promptTimezone());
   const workspaceMode = options.workspaceMode ?? (await promptWorkspaceMode());
+  const dockerFeature =
+    options.dockerFeature ?? (await promptDockerFeature(scan.hasDocker));
 
   const availableTemplates = listTemplates();
   let selectedTemplates: Template[] = [];
@@ -239,6 +274,7 @@ export async function runWizard(
     `  Timezone: ${chalk.cyan(formatTimezone(describeTimezone(timezone)))}`
   );
   console.log(`  Workspace mount: ${chalk.cyan(describeWorkspaceMode(workspaceMode))}`);
+  console.log(`  Docker: ${chalk.cyan(describeDockerFeature(dockerFeature))}`);
   console.log(
     `  Stacks: ${allStacks.length > 0 ? allStacks.map((s) => s.name).join(", ") : "none (minimal Debian)"}`
   );
@@ -278,6 +314,7 @@ export async function runWizard(
     projectName,
     timezone,
     workspaceMode,
+    dockerFeature,
     selectedStacks,
     templates: selectedTemplates,
     templateAdditions,
@@ -289,4 +326,15 @@ export function describeWorkspaceMode(mode: WorkspaceMode): string {
   return mode === "bind"
     ? "bind (whole project folder, .git included)"
     : "isolated (per-file binds, sandbox git)";
+}
+
+export function describeDockerFeature(feature: DockerFeature): string {
+  switch (feature) {
+    case "outside":
+      return "docker-outside-of-docker (host daemon)";
+    case "inside":
+      return "docker-in-docker (daemon in container, privileged)";
+    default:
+      return "none";
+  }
 }

@@ -19,14 +19,14 @@ import {
   mergeTemplateAdditions,
   type TemplateAdditions,
 } from "./templates/index.js";
-import { describeWorkspaceMode, runWizard } from "./wizard.js";
+import { describeDockerFeature, describeWorkspaceMode, runWizard } from "./wizard.js";
 import {
   describeTimezone,
   detectHostTimezone,
   formatTimezone,
   isValidTimezone,
 } from "./timezones.js";
-import type { GenerationSettings, WorkspaceMode } from "./types.js";
+import type { DockerFeature, GenerationSettings, WorkspaceMode } from "./types.js";
 
 const program = new Command();
 
@@ -50,6 +50,10 @@ program
     "--isolated",
     "disable the default workspace mount and bind each root entry individually, keeping .git on the host (the previous default)",
     false
+  )
+  .option(
+    "--docker-feature <mode>",
+    "install a Docker feature: none (default), outside (docker-outside-of-docker: host daemon) or inside (docker-in-docker)"
   )
   .option(
     "--minimal",
@@ -83,9 +87,11 @@ program
     // from the CLI; the wizard asks when the flag is absent.
     const workspaceModeOverride: WorkspaceMode | undefined =
       options.isolated === true ? "isolated" : undefined;
+    const dockerFeatureOverride = resolveDockerFeatureOverride(options.dockerFeature);
     let settings: GenerationSettings = {
       timezone: timezoneOverride ?? detectHostTimezone().id,
       workspaceMode: workspaceModeOverride ?? "bind",
+      dockerFeature: dockerFeatureOverride ?? "none",
     };
 
     let templateAdditions: TemplateAdditions | undefined;
@@ -120,6 +126,7 @@ program
       const wizardResult = await runWizard(scan, {
         timezone: timezoneOverride,
         workspaceMode: workspaceModeOverride,
+        dockerFeature: dockerFeatureOverride,
         minimalTools: options.minimal === true,
         forceTools: options.force === true,
         githubMcp: options.githubMcp === true,
@@ -128,6 +135,7 @@ program
       settings = {
         timezone: wizardResult.timezone,
         workspaceMode: wizardResult.workspaceMode,
+        dockerFeature: wizardResult.dockerFeature,
       };
 
       if (!wizardResult.confirmed) {
@@ -277,6 +285,24 @@ async function appendGitignore(rootPath: string, entries: string[]): Promise<str
   return missing;
 }
 
+const DOCKER_FEATURE_VALUES: DockerFeature[] = ["none", "outside", "inside"];
+
+function resolveDockerFeatureOverride(
+  value: string | undefined
+): DockerFeature | undefined {
+  if (value === undefined) return undefined;
+  const mode = value.trim().toLowerCase();
+  if (!DOCKER_FEATURE_VALUES.includes(mode as DockerFeature)) {
+    console.log(
+      chalk.red(
+        `Unknown --docker-feature: ${value}. Expected one of ${DOCKER_FEATURE_VALUES.join(", ")}.`
+      )
+    );
+    process.exit(1);
+  }
+  return mode as DockerFeature;
+}
+
 function resolveTimezoneOverride(value: string | undefined): string | undefined {
   if (!value) return undefined;
   const timezone = value.trim();
@@ -318,7 +344,12 @@ function printScanSummary(
     `Timezone: ${formatTimezone(describeTimezone(settings.timezone))}`
   );
   console.log(`Workspace mount: ${describeWorkspaceMode(settings.workspaceMode)}`);
-  if (scan.hasDocker) console.log(chalk.dim("Docker config detected — adding docker-outside-of-docker feature"));
+  console.log(`Docker: ${describeDockerFeature(settings.dockerFeature)}`);
+  if (scan.hasDocker && settings.dockerFeature === "none") {
+    console.log(
+      chalk.dim("Dockerfile/compose detected in the project — pass --docker-feature outside|inside to add a docker CLI")
+    );
+  }
   if (scan.hasGit) console.log(chalk.dim("Git repo detected"));
   console.log();
 }

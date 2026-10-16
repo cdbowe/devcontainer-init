@@ -29,7 +29,24 @@ interface DevcontainerConfig {
   postStartCommand: string;
 }
 
-const DOOD_FEATURE = "ghcr.io/devcontainers/features/docker-outside-of-docker:1";
+const DOCKER_FEATURES: Record<
+  Exclude<GenerationSettings["dockerFeature"], "none">,
+  [string, Record<string, unknown>]
+> = {
+  // The feature binds the host socket to /var/run/docker-host.sock and proxies
+  // it at /var/run/docker.sock with the right group, so no `mounts` entry and
+  // no chgrp in post-create are needed. moby: false pulls Docker's own CLI
+  // packages rather than Moby's, which track upstream more closely.
+  outside: [
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1",
+    { moby: false, installDockerBuildx: false },
+  ],
+  // Runs its own dockerd; the feature marks the container privileged itself.
+  inside: [
+    "ghcr.io/devcontainers/features/docker-in-docker:4.1.3",
+    { moby: false, installDockerBuildx: false },
+  ],
+};
 
 export function generateDevcontainerJson(
   scan: ScanResult,
@@ -44,11 +61,9 @@ export function generateDevcontainerJson(
   }
 
   const features: Record<string, Record<string, unknown>> = {};
-  if (scan.hasDocker) {
-    features[DOOD_FEATURE] = {
-      moby: false,
-      installDockerBuildx: false,
-    };
+  if (settings.dockerFeature !== "none") {
+    const [id, options] = DOCKER_FEATURES[settings.dockerFeature];
+    features[id] = options;
   }
 
   if (templateAdditions) {
@@ -58,8 +73,7 @@ export function generateDevcontainerJson(
     Object.assign(features, templateAdditions.features);
   }
 
-  const usesDoodFeature = DOOD_FEATURE in features;
-  const mounts = buildMountEntries(scan, settings, usesDoodFeature);
+  const mounts = buildMountEntries(scan, settings);
   if (templateAdditions) {
     mounts.push(...templateAdditions.mounts);
   }
@@ -196,19 +210,9 @@ function dedupeByTarget(mounts: string[]): string[] {
 
 function buildMountEntries(
   scan: ScanResult,
-  settings: GenerationSettings,
-  usesDoodFeature: boolean
+  settings: GenerationSettings
 ): string[] {
   const mounts: string[] = [];
-
-  // The docker-outside-of-docker feature binds the host socket itself (to
-  // /var/run/docker-host.sock, proxied to /var/run/docker.sock). A second bind
-  // on /var/run/docker.sock fights that proxy, so only add one without it.
-  if (!usesDoodFeature) {
-    mounts.push(
-      "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
-    );
-  }
 
   if (settings.workspaceMode === "bind") return mounts;
 

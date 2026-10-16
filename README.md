@@ -59,6 +59,8 @@ Options:
   --timezone <tz>           IANA timezone for the container (default: detected from the host)
   --isolated                Disable the default workspace mount and bind each root entry
                             individually, keeping .git on the host (the previous default)
+  --docker-feature <mode>   Install a Docker feature: none (default), outside
+                            (docker-outside-of-docker: host daemon) or inside (docker-in-docker)
   --minimal                 Install only the minimal claude-code-tools set (settings + statusline)
                             instead of the full toolkit (--isolated only)
   --github-mcp              With the claude-code template: register GitHub's read-only MCP
@@ -78,9 +80,10 @@ By default, `devcontainer-init` runs an interactive wizard that:
 2. Prompts for project name
 3. Prompts for the container timezone, preselecting the one detected from the host
 4. Prompts for the workspace mount: bind the whole folder (default) or isolated — see [Workspace Mount](#workspace-mount)
-5. Lets you select templates to apply (e.g., Claude Code)
-6. Runs each selected template's own prompts (version pickers, integrations)
-7. Shows a summary and asks for confirmation before writing files
+5. Prompts for Docker support: none (default), docker-outside-of-docker or docker-in-docker — see [Docker](#docker)
+6. Lets you select templates to apply (e.g., Claude Code)
+7. Runs each selected template's own prompts (version pickers, integrations)
+8. Shows a summary and asks for confirmation before writing files
 
 Template prompts run *before* the final confirmation, so the summary reflects everything you chose and nothing is written until you confirm.
 
@@ -234,9 +237,17 @@ In isolated mode, bind-mount sources have to exist before the container is creat
 
 Templates declare these folders as `hostDirs` rather than writing their own `mkdir`.
 
-### Docker-in-Docker
+### Docker
 
-If `Dockerfile`, `docker-compose.yml`, or `compose.yaml` is detected in your project, the `docker-outside-of-docker` devcontainer feature is automatically included.
+Nothing Docker-related is installed unless you ask. Pick one of three with `--docker-feature` or the wizard prompt (which preselects `outside` when a `Dockerfile` or compose file is detected in the project):
+
+| Mode | Feature | What you get |
+|------|---------|--------------|
+| `none` (default) | — | No docker CLI in the container |
+| `outside` | `docker-outside-of-docker:1` | docker CLI talking to the **host** daemon. Containers it starts are siblings, visible on the host. No privileged mode |
+| `inside` | `docker-in-docker:2` | A full daemon **inside** the container. Isolated from the host's Docker, but runs privileged and keeps its own image cache |
+
+The two features both claim `/var/run/docker.sock`, so they are mutually exclusive. The feature handles the socket mount and permissions itself; the generated config no longer binds `/var/run/docker.sock` by hand.
 
 ### Gotchas on a Windows host (bind mode)
 
