@@ -64,7 +64,11 @@ Options:
   --docker-feature <mode>   Install a Docker feature: none (default), outside
                             (docker-outside-of-docker: host daemon) or inside (docker-in-docker)
   --minimal                 Install only the minimal claude-code-tools set (settings + statusline)
-                            instead of the full toolkit (--isolated only)
+                            instead of the full toolkit
+  --claude-code-tools [repo]
+                            With the claude-code template in bind mode: copy claude-code-tools
+                            into the container, cloned at container create
+                            (default: https://github.com/cdbowe/claude-code-tools.git)
   --github-mcp              With the claude-code template: register GitHub's read-only MCP
                             server at container start, PAT from .devcontainer/.env
   --dry-run                 Show what would be generated without writing files
@@ -144,7 +148,7 @@ Templates layer additional tooling on top of the base devcontainer. Available te
 
 | Template | What It Adds |
 |----------|-------------|
-| `claude-code` | Claude Code CLI (version picker), shared `claude-code-home` volume, VS Code extension, optional read-only [GitHub MCP server](#github-mcp-server), optional [claude-code-tools](https://github.com/cdbowe/claude-code-tools) install (`--isolated` only) |
+| `claude-code` | Claude Code CLI (version picker), shared `claude-code-home` volume, VS Code extension, optional read-only [GitHub MCP server](#github-mcp-server), optional [claude-code-tools](https://github.com/cdbowe/claude-code-tools) install |
 
 Use `--template` to apply directly, or select from the wizard's template picker.
 
@@ -162,9 +166,30 @@ Local scope matters: the `claude-code-home` volume is shared by every container 
 
 Note for Claude itself: a `Read(**/.env*)` deny rule in `settings.json` also blocks reading `.env.example`. That is intended; the generator writes the file, not Claude.
 
-### claude-code-tools Integration (`--isolated` only)
+### claude-code-tools Integration
 
-In **isolated** mode the `claude-code` template can wire in a local [claude-code-tools](https://github.com/cdbowe/claude-code-tools) checkout so your `settings.json`, `settings.local.json`, and statusline work in the new container out of the box. In the default **bind** mode this integration is skipped entirely: `.claude/` is plain committed repo content, `mounts` holds only named volumes, and the toolkit's worktree scripts assume the isolated `main/` layout anyway. Copy the components a repo needs into its `.claude/` instead.
+The `claude-code` template can install [claude-code-tools](https://github.com/cdbowe/claude-code-tools) into the new container. The toolkit's own `install.sh` owns the layout and copies files (`cp -R`), so nothing links back to the source. How the source reaches the container depends on the workspace mode.
+
+#### Bind mode (default): cloned at container create
+
+Opt in with `--claude-code-tools` or the wizard prompt. Pass a URL to use a fork: `--claude-code-tools https://github.com/you/claude-code-tools.git`. No mount is added; `mounts` stays named volumes only.
+
+Post-create shallow-clones the repo into a temp dir, runs `install.sh`, then deletes the clone:
+
+| Scope | What's copied | When |
+|-------|---------------|------|
+| User (`$CLAUDE_CONFIG_DIR`, the shared `claude-code-home` volume) | `--minimal`: settings + statusline | Every container create |
+| Project (`$WORKSPACE_DIR/.claude`, the real repo) | `--all` (or `--minimal` with `--minimal`), plus `settings.local.json` seed | Only while `.claude/settings.json` doesn't exist |
+
+- **User scope is minimal on purpose.** Commands, agents and hooks at user level shadow each repo's own project-level ones, in every container sharing the volume.
+- **Project scope seeds once.** After the first copy, `.claude/` is committed repo content you own. Rebuilds leave it alone rather than overwriting tracked files. Generating with `--force` drops that guard and re-copies on every create, including `install.sh --force` for `settings.local.json`.
+- **Review the first copy before committing it.** It includes personal items (statusline, `rules/`) and a `/prd` whose build step still expects the `main/` + `worktrees/` layout; `prd-doctor` warns about it. Keep only what the repo needs.
+- **Needs network at create time.** If the clone fails, post-create prints a warning and carries on.
+- **Pushed commits only.** Unpushed changes in your local checkout aren't seen; push first, or use isolated mode with a local checkout.
+
+#### Isolated mode: mounted from a local checkout
+
+In **isolated** mode the template wires in a local checkout instead, so your `settings.json`, `settings.local.json`, and statusline work in the new container out of the box.
 
 When enabled, the template adds:
 

@@ -61,6 +61,12 @@ export interface TemplateConfigureOptions {
    * should do so without prompting. Defaults to false; interactive runs ask.
    */
   githubMcp?: boolean;
+  /**
+   * Set by --claude-code-tools [repo]. Bind mode only: opt in to cloning the
+   * toolkit from this git URL at container create. Undefined = not opted in
+   * (interactive runs ask).
+   */
+  toolsRepo?: string;
 }
 
 export interface Template {

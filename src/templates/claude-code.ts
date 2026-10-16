@@ -44,6 +44,20 @@ function fetchAllVersions(): string[] {
 
 const CONTAINER_TOOLS_DIR = "/opt/claude-code-tools";
 const DEFAULT_TOOLS_SIBLING = "../claude-code-tools";
+export const DEFAULT_TOOLS_REPO = "https://github.com/cdbowe/claude-code-tools.git";
+
+// The toolkit's /prd command set shells out to python3 for the topological sort
+// and wave splitting in prd-plan.sh and prd-unblock-compile.sh. Not present on
+// debian:*-slim. Scoped to the tools integration rather than the base package
+// list so containers generated without the toolkit stay slim.
+const TOOLS_PYTHON_STEP = `
+######################
+# claude-code-tools runtime deps
+######################
+
+RUN apt-get update && apt-get install -y --no-install-recommends \\
+    python3 \\
+  && apt-get clean && rm -rf /var/lib/apt/lists/*`;
 
 interface ToolsIntegration {
   dockerfileSteps: string[];
@@ -52,6 +66,107 @@ interface ToolsIntegration {
   hostDirs: string[];
   postCreateSteps: string[];
   gitignoreEntries: string[];
+}
+
+/**
+ * Bind-mode toolkit install. Nothing can be bind-mounted, so post-create
+ * shallow-clones the toolkit into a temp dir, runs its own install.sh, and
+ * deletes the clone. install.sh copies (cp -R), so nothing links back to it.
+ *
+ * Scopes differ from isolated mode on purpose:
+ * - User scope (the shared claude-code-home volume) gets the minimal set —
+ *   settings + statusline — on every create. Copying commands/ there too would
+ *   shadow each repo's own project-level commands in every container.
+ * - Project scope (the real repo's .claude/) gets the full toolkit unless
+ *   --minimal, but only while `.claude/settings.json` doesn't exist. After the
+ *   first copy it's committed repo content, and a rebuild must not overwrite
+ *   tracked files. --force drops that guard and re-copies on every create.
+ */
+async function configureToolsCopy(
+  interactive: boolean,
+  minimalTools: boolean,
+  forceTools: boolean,
+  toolsRepo: string | undefined
+): Promise<ToolsIntegration> {
+  // Claude Code itself writes both of these into the real repo's .claude/;
+  // neither belongs in version control, toolkit or not.
+  const gitignoreEntries = [".claude/settings.local.json", ".claude/worktrees/"];
+
+  let repo = toolsRepo;
+  if (repo === undefined && interactive) {
+    const { enable } = await inquirer.prompt<{ enable: boolean }>([
+      {
+        type: "confirm",
+        name: "enable",
+        message:
+          "Copy claude-code-tools into the container (cloned from GitHub at container create)?",
+        default: false,
+      },
+    ]);
+    if (enable) {
+      const { url } = await inquirer.prompt<{ url: string }>([
+        {
+          type: "input",
+          name: "url",
+          message: "claude-code-tools git URL:",
+          default: DEFAULT_TOOLS_REPO,
+        },
+      ]);
+      repo = url.trim() || DEFAULT_TOOLS_REPO;
+    }
+  }
+
+  const none: ToolsIntegration = {
+    dockerfileSteps: [],
+    mounts: [],
+    envVars: {},
+    hostDirs: [],
+    postCreateSteps: [],
+    gitignoreEntries,
+  };
+  if (repo === undefined) return none;
+
+  // Embedded in a double-quoted bash string below; refuse anything that could
+  // break out of it rather than trying to escape it.
+  if (!/^[^\s"'`$\\]+$/.test(repo)) {
+    console.log(chalk.red(`Invalid claude-code-tools repo URL: ${repo}`));
+    process.exit(1);
+  }
+
+  const projectModeFlag = minimalTools ? "--minimal" : "--all";
+  const projectFlags = forceTools ? "--with-local --force" : "--with-local";
+  const projectInstall = `bash "$CCT_SRC/install.sh" ${projectModeFlag} --dir "\${WORKSPACE_DIR}/.claude" ${projectFlags}`;
+
+  const projectStep = forceTools
+    ? `  # --force: re-copy over the committed project .claude/ on every create.
+  ${projectInstall}`
+    : `  # Seed once. After that .claude/ is committed repo content; a rebuild must
+  # not overwrite tracked files. Regenerate with --force to re-copy every create.
+  if [ ! -e "\${WORKSPACE_DIR}/.claude/settings.json" ]; then
+    ${projectInstall}
+  else
+    echo "  .claude/settings.json exists; leaving the project's committed .claude/ alone."
+  fi`;
+
+  return {
+    dockerfileSteps: minimalTools ? [] : [TOOLS_PYTHON_STEP],
+    mounts: [],
+    envVars: {},
+    hostDirs: [],
+    gitignoreEntries,
+    postCreateSteps: [
+      `# claude-code-tools: clone, install, discard the clone.
+CCT_SRC="$(mktemp -d)"
+if git clone -q --depth 1 "${repo}" "$CCT_SRC"; then
+  # User scope: settings + statusline only, so no commands shadow the repo's own.
+  bash "$CCT_SRC/install.sh" --minimal --dir "\${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+${projectStep}
+else
+  echo "  WARNING: could not clone ${repo}; skipping claude-code-tools install."
+fi
+rm -rf "$CCT_SRC"`,
+    ],
+  };
 }
 
 /**
@@ -68,19 +183,20 @@ interface ToolsIntegration {
  * --force propagates as install.sh's own --force, which replaces an existing
  * settings.local.json instead of keeping it.
  *
- * Isolated mode only. It binds `.claude/` and a host-backed `main/` folder that
- * post-create turns into a sandbox git repo — the toolkit's worktree scripts
- * expect that layout. Bind mode gets nothing from here: `.claude/` and the real
- * `.git` arrive with the workspace mount, the mounts array is reserved for
- * named volumes, and Claude Code's built-in worktrees (`.claude/worktrees/`)
- * replace the `main/` + `worktrees/` split.
+ * Isolated mode binds the checkout read-only, plus `.claude/` and a
+ * host-backed `main/` folder that post-create turns into a sandbox git repo —
+ * the toolkit's worktree scripts expect that layout.
+ *
+ * Bind mode can't bind anything (the mounts array is reserved for named
+ * volumes), so it clones the toolkit instead: see configureToolsCopy.
  */
 async function configureToolsIntegration(
   interactive: boolean,
   projectPath: string,
   workspaceMode: WorkspaceMode,
   minimalTools: boolean,
-  forceTools: boolean
+  forceTools: boolean,
+  toolsRepo: string | undefined
 ): Promise<ToolsIntegration> {
   const empty: ToolsIntegration = {
     dockerfileSteps: [],
@@ -95,12 +211,7 @@ async function configureToolsIntegration(
   // committed repo content — nothing is linked or installed from a host
   // checkout. The toolkit's worktree scripts also assume the isolated layout.
   if (workspaceMode === "bind") {
-    return {
-      ...empty,
-      // install.sh isn't run here, but Claude Code itself writes both of
-      // these into the real repo's .claude/; neither belongs in version control.
-      gitignoreEntries: [".claude/settings.local.json", ".claude/worktrees/"],
-    };
+    return configureToolsCopy(interactive, minimalTools, forceTools, toolsRepo);
   }
 
   // Explicit opt-in wins over filesystem probing. This matters when
@@ -174,20 +285,7 @@ async function configureToolsIntegration(
   const localFlags = forceTools ? "--with-local --force" : "--with-local";
 
   return {
-    dockerfileSteps: [
-      `
-######################
-# claude-code-tools runtime deps
-######################
-
-# The toolkit's /prd command set shells out to python3 for the topological sort
-# and wave splitting in prd-plan.sh and prd-unblock-compile.sh. Not present on
-# debian:*-slim. Scoped to the tools integration rather than the base package
-# list so containers generated without the checkout stay slim.
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    python3 \\
-  && apt-get clean && rm -rf /var/lib/apt/lists/*`,
-    ],
+    dockerfileSteps: [TOOLS_PYTHON_STEP],
     mounts: [
       `source=${mountSource},target=${CONTAINER_TOOLS_DIR},type=bind,readonly`,
       // Surface project-scoped config as a real .claude/ at the workspace root.
@@ -379,6 +477,7 @@ export const claudeCodeTemplate: Template = {
     minimalTools = false,
     forceTools = false,
     githubMcp = false,
+    toolsRepo,
   }: TemplateConfigureOptions): Promise<TemplateAdditions> {
     console.log(chalk.dim("\nFetching Claude Code versions from npm..."));
     const distTags = fetchDistTags();
@@ -461,12 +560,13 @@ export const claudeCodeTemplate: Template = {
       projectPath,
       workspaceMode,
       minimalTools,
-      forceTools
+      forceTools,
+      toolsRepo
     );
-    if (tools.mounts.length > 0) {
+    if (tools.postCreateSteps.length > 0) {
       console.log(
         chalk.green(
-          `  Wiring in claude-code-tools install step (${minimalTools ? "minimal: settings + statusline" : "full toolkit: + agents, commands, hooks"})`
+          `  Wiring in claude-code-tools install step (${minimalTools ? "minimal: settings + statusline" : "full toolkit: + agents, commands, hooks"}${workspaceMode === "bind" ? "; cloned at container create" : ""})`
         )
       );
       if (forceTools) {

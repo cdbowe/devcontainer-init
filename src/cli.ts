@@ -19,6 +19,7 @@ import {
   mergeTemplateAdditions,
   type TemplateAdditions,
 } from "./templates/index.js";
+import { DEFAULT_TOOLS_REPO } from "./templates/claude-code.js";
 import { describeDockerFeature, describeWorkspaceMode, runWizard } from "./wizard.js";
 import {
   describeTimezone,
@@ -59,6 +60,10 @@ program
     "--minimal",
     "install only the minimal claude-code-tools set (settings + statusline) instead of the full toolkit",
     false
+  )
+  .option(
+    "--claude-code-tools [repo]",
+    `with the claude-code template in bind mode: copy claude-code-tools into the container, cloned at container create (default repo: ${DEFAULT_TOOLS_REPO})`
   )
   .option(
     "--github-mcp",
@@ -113,6 +118,7 @@ program
             minimalTools: options.minimal === true,
             forceTools: options.force === true,
             githubMcp: options.githubMcp === true,
+            toolsRepo: resolveToolsRepo(options.claudeCodeTools),
           })
         );
       }
@@ -130,6 +136,7 @@ program
         minimalTools: options.minimal === true,
         forceTools: options.force === true,
         githubMcp: options.githubMcp === true,
+        toolsRepo: resolveToolsRepo(options.claudeCodeTools),
       });
       scan.projectName = wizardResult.projectName;
       settings = {
@@ -283,6 +290,13 @@ async function appendGitignore(rootPath: string, entries: string[]): Promise<str
   out += `# devcontainer-init${eol}${missing.join(eol)}${eol}`;
   await writeFile(path, out, "utf-8");
   return missing;
+}
+
+/** Commander gives `true` for a bare `--claude-code-tools`, a string for a value. */
+function resolveToolsRepo(value: string | boolean | undefined): string | undefined {
+  if (value === undefined || value === false) return undefined;
+  if (value === true) return DEFAULT_TOOLS_REPO;
+  return value.trim() || DEFAULT_TOOLS_REPO;
 }
 
 const DOCKER_FEATURE_VALUES: DockerFeature[] = ["none", "outside", "inside"];

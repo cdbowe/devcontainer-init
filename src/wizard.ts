@@ -114,6 +114,8 @@ export interface WizardOptions {
   forceTools?: boolean;
   /** Set by --github-mcp; passed through to template configuration. */
   githubMcp?: boolean;
+  /** Set by --claude-code-tools; passed through to template configuration. */
+  toolsRepo?: string;
 }
 
 async function promptWorkspaceMode(): Promise<WorkspaceMode> {
@@ -260,6 +262,7 @@ export async function runWizard(
           minimalTools: options.minimalTools,
           forceTools: options.forceTools,
           githubMcp: options.githubMcp,
+          toolsRepo: options.toolsRepo,
         })
       );
     }
